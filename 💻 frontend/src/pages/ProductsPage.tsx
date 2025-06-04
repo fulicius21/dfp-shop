@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Filter, SlidersHorizontal, Grid, List, Search, AlertCircle, Wifi, WifiOff } from 'lucide-react';
+import { Filter, SlidersHorizontal, Grid, List, Search, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -24,141 +24,99 @@ interface Filters {
   inStock: boolean;
 }
 
+const defaultFilters: Filters = {
+  category: [],
+  collection: [],
+  priceRange: [0, 300],
+  sizes: [],
+  colors: [],
+  tags: [],
+  inStock: false,
+};
+
+const sortOptions = [
+  { value: 'name', label: 'Name (A-Z)' },
+  { value: 'price', label: 'Preis (niedrig-hoch)' },
+  { value: 'priceDesc', label: 'Preis (hoch-niedrig)' },
+  { value: 'newest', label: 'Neueste zuerst' },
+];
+
 const ProductsPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('name');
-  
-  const [filters, setFilters] = useState<Filters>({
-    category: [],
-    collection: [],
-    priceRange: [0, 300],
-    sizes: [],
-    colors: [],
-    tags: [],
-    inStock: false,
-  });
+  const [filters, setFilters] = useState<Filters>(defaultFilters);
 
-  // API-Calls mit Fallback - erstelle API-Filter
+  const resetFilters = useCallback(() => {
+    setFilters(defaultFilters);
+    setSearchTerm('');
+  }, []);
+
+  // API-Calls mit Fallback
   const apiFilters: ProductFilters = useMemo(() => ({
-    category: filters.category.length > 0 ? filters.category : undefined,
-    collection: filters.collection.length > 0 ? filters.collection : undefined,
+    category: filters.category.length ? filters.category : undefined,
+    collection: filters.collection.length ? filters.collection : undefined,
     priceMin: filters.priceRange[0],
     priceMax: filters.priceRange[1],
-    sizes: filters.sizes.length > 0 ? filters.sizes : undefined,
-    colors: filters.colors.length > 0 ? filters.colors : undefined,
-    tags: filters.tags.length > 0 ? filters.tags : undefined,
+    sizes: filters.sizes.length ? filters.sizes : undefined,
+    colors: filters.colors.length ? filters.colors : undefined,
+    tags: filters.tags.length ? filters.tags : undefined,
     inStock: filters.inStock || undefined,
     search: searchTerm || undefined,
     sortBy: sortBy as any,
     sortOrder: 'asc',
   }), [filters, searchTerm, sortBy]);
 
-  const { 
-    products, 
-    isLoading: productsLoading, 
-    error: productsError,
-    isUsingFallback: productsUsingFallback,
-    refetch: refetchProducts 
-  } = useProductsWithFallback(apiFilters);
+  const { products, isLoading: productsLoading, error: productsError, isUsingFallback: productsUsingFallback, refetch: refetchProducts } = useProductsWithFallback(apiFilters);
+  const { categories, isLoading: categoriesLoading, error: categoriesError, isUsingFallback: categoriesUsingFallback, refetch: refetchCategories } = useCategoriesWithFallback();
 
-  const { 
-    categories, 
-    isLoading: categoriesLoading, 
-    error: categoriesError,
-    isUsingFallback: categoriesUsingFallback,
-    refetch: refetchCategories 
-  } = useCategoriesWithFallback();
-
-  // Filter products locally if needed (nur für Fallback-Daten)
+  // Fallback-Filterung
   const filteredProducts = useMemo(() => {
     if (!products) return [];
-    
     let filtered = [...products];
 
-    // Wenn wir Fallback-Daten verwenden, müssen wir lokal filtern
     if (productsUsingFallback) {
-      // Search filter
       if (searchTerm) {
+        const term = searchTerm.toLowerCase();
         filtered = filtered.filter(product =>
-          product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+          product.name.toLowerCase().includes(term) ||
+          product.description.toLowerCase().includes(term) ||
+          product.tags.some(tag => tag.toLowerCase().includes(term))
         );
       }
-
-      // Category filter
-      if (filters.category.length > 0) {
+      if (filters.category.length)
         filtered = filtered.filter(product => filters.category.includes(product.category));
-      }
-
-      // Collection filter
-      if (filters.collection.length > 0) {
+      if (filters.collection.length)
         filtered = filtered.filter(product => filters.collection.includes(product.collection));
-      }
-
-      // Price filter
-      filtered = filtered.filter(product => 
+      filtered = filtered.filter(product =>
         product.price >= filters.priceRange[0] && product.price <= filters.priceRange[1]
       );
-
-      // Size filter
-      if (filters.sizes.length > 0) {
-        filtered = filtered.filter(product => 
-          product.sizes.some(size => filters.sizes.includes(size))
-        );
-      }
-
-      // Color filter
-      if (filters.colors.length > 0) {
-        filtered = filtered.filter(product => 
-          product.colors.some(color => filters.colors.includes(color.name))
-        );
-      }
-
-      // Sorting (für Fallback-Daten)
+      if (filters.sizes.length)
+        filtered = filtered.filter(product => product.sizes.some(size => filters.sizes.includes(size)));
+      if (filters.colors.length)
+        filtered = filtered.filter(product => product.colors.some(color => filters.colors.includes(color.name)));
+      // Sort
       filtered.sort((a, b) => {
         switch (sortBy) {
-          case 'price':
-            return a.price - b.price;
-          case 'priceDesc':
-            return b.price - a.price;
-          case 'name':
-            return a.name.localeCompare(b.name);
-          case 'newest':
-            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-          default:
-            return 0;
+          case 'price': return a.price - b.price;
+          case 'priceDesc': return b.price - a.price;
+          case 'name': return a.name.localeCompare(b.name);
+          case 'newest': return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+          default: return 0;
         }
       });
     }
-
     return filtered;
   }, [products, searchTerm, filters, sortBy, productsUsingFallback]);
 
-  // Available filter options
-  const availableCollections = useMemo(() => {
-    if (!products) return [];
-    return [...new Set(products.map(p => p.collection))].filter(Boolean);
-  }, [products]);
+  // Optionen für Filter
+  const availableCollections = useMemo(() => products ? [...new Set(products.map(p => p.collection))].filter(Boolean) : [], [products]);
+  const availableSizes = useMemo(() => products ? [...new Set(products.flatMap(p => p.sizes))].filter(Boolean) : [], [products]);
+  const availableColors = useMemo(() => products ? [...new Set(products.flatMap(p => p.colors.map(c => c.name)))].filter(Boolean) : [], [products]);
+  const availableTags = useMemo(() => products ? [...new Set(products.flatMap(p => p.tags))].filter(Boolean) : [], [products]);
 
-  const availableSizes = useMemo(() => {
-    if (!products) return [];
-    return [...new Set(products.flatMap(p => p.sizes))].filter(Boolean);
-  }, [products]);
-
-  const availableColors = useMemo(() => {
-    if (!products) return [];
-    return [...new Set(products.flatMap(p => p.colors.map(c => c.name)))].filter(Boolean);
-  }, [products]);
-
-  const availableTags = useMemo(() => {
-    if (!products) return [];
-    return [...new Set(products.flatMap(p => p.tags))].filter(Boolean);
-  }, [products]);
-
-  // Loading state
+  // Ladezustand
   if (productsLoading || categoriesLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -180,29 +138,19 @@ const ProductsPage: React.FC = () => {
           <WifiOff className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
             <span>
-              Offline-Modus: Zeige gespeicherte Daten. 
+              Offline-Modus: Zeige gespeicherte Daten.
               {productsError && ` (${productsError.message})`}
             </span>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => {
-                refetchProducts();
-                refetchCategories();
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={() => { refetchProducts(); refetchCategories(); }}>
               Erneut versuchen
             </Button>
           </AlertDescription>
         </Alert>
       )}
-
       {!productsUsingFallback && !categoriesUsingFallback && (
         <Alert className="mb-6 border-green-200 bg-green-50">
           <Wifi className="h-4 w-4" />
-          <AlertDescription>
-            Online: Aktuelle Daten vom Server
-          </AlertDescription>
+          <AlertDescription>Online: Aktuelle Daten vom Server</AlertDescription>
         </Alert>
       )}
 
@@ -214,35 +162,21 @@ const ProductsPage: React.FC = () => {
             {filteredProducts.length} {filteredProducts.length === 1 ? 'Produkt' : 'Produkte'} gefunden
           </p>
         </div>
-        
         <div className="flex flex-col sm:flex-row gap-4 mt-4 lg:mt-0">
-          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <Input
               placeholder="Produkte suchen..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={e => setSearchTerm(e.target.value)}
               className="pl-10 w-full sm:w-80"
             />
           </div>
-          
-          {/* View Mode */}
           <div className="flex rounded-md border">
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('grid')}
-              className="rounded-r-none"
-            >
+            <Button variant={viewMode === 'grid' ? 'default' : 'ghost'} size="sm" onClick={() => setViewMode('grid')} className="rounded-r-none">
               <Grid className="h-4 w-4" />
             </Button>
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('list')}
-              className="rounded-l-none"
-            >
+            <Button variant={viewMode === 'list' ? 'default' : 'ghost'} size="sm" onClick={() => setViewMode('list')} className="rounded-l-none">
               <List className="h-4 w-4" />
             </Button>
           </div>
@@ -251,25 +185,19 @@ const ProductsPage: React.FC = () => {
 
       {/* Filters and Sort */}
       <div className="flex flex-col lg:flex-row gap-4 mb-8">
-        <Button
-          variant="outline"
-          onClick={() => setShowFilters(!showFilters)}
-          className="lg:hidden"
-        >
+        <Button variant="outline" onClick={() => setShowFilters(!showFilters)} className="lg:hidden">
           <Filter className="h-4 w-4 mr-2" />
           Filter {showFilters ? 'ausblenden' : 'anzeigen'}
         </Button>
-
         <div className="flex-1">
           <Select value={sortBy} onValueChange={setSortBy}>
             <SelectTrigger className="w-full lg:w-64">
               <SelectValue placeholder="Sortieren nach..." />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="name">Name (A-Z)</SelectItem>
-              <SelectItem value="price">Preis (niedrig-hoch)</SelectItem>
-              <SelectItem value="priceDesc">Preis (hoch-niedrig)</SelectItem>
-              <SelectItem value="newest">Neueste zuerst</SelectItem>
+              {sortOptions.map(opt => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -280,79 +208,47 @@ const ProductsPage: React.FC = () => {
         <div className={`lg:col-span-1 ${showFilters ? 'block' : 'hidden lg:block'}`}>
           <div className="bg-white p-6 rounded-lg border sticky top-4">
             <h2 className="text-lg font-semibold mb-4 flex items-center">
-              <SlidersHorizontal className="h-4 w-4 mr-2" />
-              Filter
+              <SlidersHorizontal className="h-4 w-4 mr-2" /> Filter
             </h2>
-
-            {/* Categories */}
+            {/* Kategorien */}
             {categories && categories.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-medium mb-3">Kategorien</h3>
-                <div className="space-y-2">
-                  {categories.map((category) => (
-                    <div key={category.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`category-${category.id}`}
-                        checked={filters.category.includes(category.slug)}
-                        onCheckedChange={(checked) => {
-                          setFilters(prev => ({
-                            ...prev,
-                            category: checked
-                              ? [...prev.category, category.slug]
-                              : prev.category.filter(c => c !== category.slug)
-                          }));
-                        }}
-                      />
-                      <label
-                        htmlFor={`category-${category.id}`}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                      >
-                        {category.name} ({category.productCount})
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <FilterGroup
+                title="Kategorien"
+                options={categories.map(c => ({ label: `${c.name} (${c.productCount})`, value: c.slug }))}
+                selected={filters.category}
+                onToggle={slug =>
+                  setFilters(prev => ({
+                    ...prev,
+                    category: prev.category.includes(slug)
+                      ? prev.category.filter(c => c !== slug)
+                      : [...prev.category, slug],
+                  }))
+                }
+              />
             )}
-
-            {/* Collections */}
+            {/* Kollektionen */}
             {availableCollections.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-medium mb-3">Kollektionen</h3>
-                <div className="space-y-2">
-                  {availableCollections.map((collection) => (
-                    <div key={collection} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`collection-${collection}`}
-                        checked={filters.collection.includes(collection)}
-                        onCheckedChange={(checked) => {
-                          setFilters(prev => ({
-                            ...prev,
-                            collection: checked
-                              ? [...prev.collection, collection]
-                              : prev.collection.filter(c => c !== collection)
-                          }));
-                        }}
-                      />
-                      <label
-                        htmlFor={`collection-${collection}`}
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                      >
-                        {collection}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <FilterGroup
+                title="Kollektionen"
+                options={availableCollections.map(c => ({ label: c, value: c }))}
+                selected={filters.collection}
+                onToggle={coll =>
+                  setFilters(prev => ({
+                    ...prev,
+                    collection: prev.collection.includes(coll)
+                      ? prev.collection.filter(c => c !== coll)
+                      : [...prev.collection, coll],
+                  }))
+                }
+              />
             )}
-
-            {/* Price Range */}
+            {/* Preis */}
             <div className="mb-6">
               <h3 className="font-medium mb-3">Preis</h3>
               <div className="px-2">
                 <Slider
                   value={filters.priceRange}
-                  onValueChange={(value) => setFilters(prev => ({ ...prev, priceRange: value as [number, number] }))}
+                  onValueChange={value => setFilters(prev => ({ ...prev, priceRange: value as [number, number] }))}
                   max={500}
                   min={0}
                   step={10}
@@ -364,106 +260,54 @@ const ProductsPage: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            {/* Sizes */}
+            {/* Größen */}
             {availableSizes.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-medium mb-3">Größen</h3>
-                <div className="flex flex-wrap gap-2">
-                  {availableSizes.map((size) => (
-                    <Button
-                      key={size}
-                      variant={filters.sizes.includes(size) ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        setFilters(prev => ({
-                          ...prev,
-                          sizes: filters.sizes.includes(size)
-                            ? prev.sizes.filter(s => s !== size)
-                            : [...prev.sizes, size]
-                        }));
-                      }}
-                    >
-                      {size}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              <ButtonGroup
+                title="Größen"
+                options={availableSizes}
+                selected={filters.sizes}
+                onToggle={size =>
+                  setFilters(prev => ({
+                    ...prev,
+                    sizes: prev.sizes.includes(size)
+                      ? prev.sizes.filter(s => s !== size)
+                      : [...prev.sizes, size],
+                  }))
+                }
+              />
             )}
-
             {/* In Stock */}
             <div className="mb-6">
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="inStock"
                   checked={filters.inStock}
-                  onCheckedChange={(checked) => setFilters(prev => ({ ...prev, inStock: checked as boolean }))}
+                  onCheckedChange={checked => setFilters(prev => ({ ...prev, inStock: checked as boolean }))}
                 />
-                <label
-                  htmlFor="inStock"
-                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                >
+                <label htmlFor="inStock" className="text-sm font-medium cursor-pointer">
                   Nur verfügbare Artikel
                 </label>
               </div>
             </div>
-
-            {/* Clear Filters */}
-            <Button
-              variant="outline"
-              onClick={() => {
-                setFilters({
-                  category: [],
-                  collection: [],
-                  priceRange: [0, 300],
-                  sizes: [],
-                  colors: [],
-                  tags: [],
-                  inStock: false,
-                });
-                setSearchTerm('');
-              }}
-              className="w-full"
-            >
+            {/* Filter zurücksetzen */}
+            <Button variant="outline" onClick={resetFilters} className="w-full">
               Filter zurücksetzen
             </Button>
           </div>
         </div>
-
         {/* Products Grid */}
         <div className="lg:col-span-3">
           {filteredProducts.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-gray-600 mb-4">Keine Produkte gefunden.</p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFilters({
-                    category: [],
-                    collection: [],
-                    priceRange: [0, 300],
-                    sizes: [],
-                    colors: [],
-                    tags: [],
-                    inStock: false,
-                  });
-                  setSearchTerm('');
-                }}
-              >
+              <Button variant="outline" onClick={resetFilters}>
                 Filter zurücksetzen
               </Button>
             </div>
           ) : (
-            <div className={viewMode === 'grid' 
-              ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" 
-              : "space-y-6"
-            }>
-              {filteredProducts.map((product) => (
-                <ProductCard 
-                  key={product.id} 
-                  product={product} 
-                  viewMode={viewMode} 
-                />
+            <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" : "space-y-6"}>
+              {filteredProducts.map(product => (
+                <ProductCard key={product.id} product={product} viewMode={viewMode} />
               ))}
             </div>
           )}
@@ -473,76 +317,101 @@ const ProductsPage: React.FC = () => {
   );
 };
 
-// Product Card Component
+// Hilfskomponenten für Filtergruppen
+interface FilterGroupProps {
+  title: string;
+  options: { label: string; value: string }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}
+const FilterGroup: React.FC<FilterGroupProps> = ({ title, options, selected, onToggle }) => (
+  <div className="mb-6">
+    <h3 className="font-medium mb-3">{title}</h3>
+    <div className="space-y-2">
+      {options.map(opt => (
+        <div key={opt.value} className="flex items-center space-x-2">
+          <Checkbox
+            id={`${title}-${opt.value}`}
+            checked={selected.includes(opt.value)}
+            onCheckedChange={() => onToggle(opt.value)}
+          />
+          <label htmlFor={`${title}-${opt.value}`} className="text-sm font-medium cursor-pointer">
+            {opt.label}
+          </label>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+interface ButtonGroupProps {
+  title: string;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}
+const ButtonGroup: React.FC<ButtonGroupProps> = ({ title, options, selected, onToggle }) => (
+  <div className="mb-6">
+    <h3 className="font-medium mb-3">{title}</h3>
+    <div className="flex flex-wrap gap-2">
+      {options.map(opt => (
+        <Button
+          key={opt}
+          variant={selected.includes(opt) ? "default" : "outline"}
+          size="sm"
+          onClick={() => onToggle(opt)}
+        >
+          {opt}
+        </Button>
+      ))}
+    </div>
+  </div>
+);
+
+// Produktkarte
 interface ProductCardProps {
   product: Product;
   viewMode: 'grid' | 'list';
 }
-
 const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode }) => {
+  const imageSrc = product.images?.[0] || '/images/products/placeholder.jpg';
+  const onImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    (e.target as HTMLImageElement).src = '/images/products/placeholder.jpg';
+  };
+
   if (viewMode === 'list') {
     return (
       <Card className="hover:shadow-lg transition-shadow">
         <CardContent className="p-0">
           <div className="flex">
             <div className="w-48 h-48 flex-shrink-0">
-              <img
-                src={product.images?.[0] || '/images/products/placeholder.jpg'}
-                alt={product.name}
-                className="w-full h-full object-cover rounded-l-lg"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.src = '/images/products/placeholder.jpg';
-                }}
-              />
+              <img src={imageSrc} alt={product.name} className="w-full h-full object-cover rounded-l-lg" onError={onImageError} />
             </div>
             <div className="flex-1 p-6">
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <h3 className="text-lg font-semibold mb-1">
-                    <Link 
-                      to={`/produkte/${product.id}`}
-                      className="hover:text-gray-600"
-                    >
-                      {product.name}
-                    </Link>
+                    <Link to={`/produkte/${product.id}`} className="hover:text-gray-600">{product.name}</Link>
                   </h3>
                   <p className="text-gray-600 text-sm mb-2">{product.category}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-bold">{product.price}€</p>
                   {product.originalPrice && (
-                    <p className="text-sm text-gray-500 line-through">
-                      {product.originalPrice}€
-                    </p>
+                    <p className="text-sm text-gray-500 line-through">{product.originalPrice}€</p>
                   )}
                 </div>
               </div>
-              
-              <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                {product.description}
-              </p>
-              
+              <p className="text-gray-600 text-sm mb-4 line-clamp-2">{product.description}</p>
               <div className="flex items-center justify-between">
                 <div className="flex gap-2">
-                  {product.featured && (
-                    <Badge variant="default">Featured</Badge>
-                  )}
-                  {product.newArrival && (
-                    <Badge variant="secondary">Neu</Badge>
-                  )}
-                  {product.bestseller && (
-                    <Badge variant="outline">Bestseller</Badge>
-                  )}
-                  {product.discount > 0 && (
-                    <Badge variant="destructive">-{product.discount}%</Badge>
-                  )}
+                  {product.featured && <Badge variant="default">Featured</Badge>}
+                  {product.newArrival && <Badge variant="secondary">Neu</Badge>}
+                  {product.bestseller && <Badge variant="outline">Bestseller</Badge>}
+                  {product.discount > 0 && <Badge variant="destructive">-{product.discount}%</Badge>}
                 </div>
-                
                 <Button asChild>
-                  <Link to={`/produkte/${product.id}`}>
-                    Details
-                  </Link>
+                  <Link to={`/produkte/${product.id}`}>Details</Link>
                 </Button>
               </div>
             </div>
@@ -556,62 +425,31 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode }) => {
     <Card className="group hover:shadow-lg transition-shadow">
       <CardContent className="p-0">
         <div className="aspect-square overflow-hidden rounded-t-lg">
-          <img
-            src={product.images?.[0] || '/images/products/placeholder.jpg'}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.src = '/images/products/placeholder.jpg';
-            }}
-          />
+          <img src={imageSrc} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" onError={onImageError} />
         </div>
-        
         <div className="p-4">
           <div className="flex justify-between items-start mb-2">
             <div className="flex-1">
               <h3 className="font-semibold mb-1 line-clamp-1">
-                <Link 
-                  to={`/produkte/${product.id}`}
-                  className="hover:text-gray-600"
-                >
-                  {product.name}
-                </Link>
+                <Link to={`/produkte/${product.id}`} className="hover:text-gray-600">{product.name}</Link>
               </h3>
               <p className="text-gray-600 text-sm">{product.category}</p>
             </div>
           </div>
-          
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-lg font-bold">{product.price}€</p>
-              {product.originalPrice && (
-                <p className="text-sm text-gray-500 line-through">
-                  {product.originalPrice}€
-                </p>
-              )}
+              {product.originalPrice && <p className="text-sm text-gray-500 line-through">{product.originalPrice}€</p>}
             </div>
-            
             <div className="flex gap-1">
-              {product.featured && (
-                <Badge variant="default" className="text-xs">F</Badge>
-              )}
-              {product.newArrival && (
-                <Badge variant="secondary" className="text-xs">N</Badge>
-              )}
-              {product.bestseller && (
-                <Badge variant="outline" className="text-xs">B</Badge>
-              )}
-              {product.discount > 0 && (
-                <Badge variant="destructive" className="text-xs">-{product.discount}%</Badge>
-              )}
+              {product.featured && <Badge variant="default" className="text-xs">F</Badge>}
+              {product.newArrival && <Badge variant="secondary" className="text-xs">N</Badge>}
+              {product.bestseller && <Badge variant="outline" className="text-xs">B</Badge>}
+              {product.discount > 0 && <Badge variant="destructive" className="text-xs">-{product.discount}%</Badge>}
             </div>
           </div>
-          
           <Button asChild className="w-full" size="sm">
-            <Link to={`/produkte/${product.id}`}>
-              Details ansehen
-            </Link>
+            <Link to={`/produkte/${product.id}`}>Details ansehen</Link>
           </Button>
         </div>
       </CardContent>
