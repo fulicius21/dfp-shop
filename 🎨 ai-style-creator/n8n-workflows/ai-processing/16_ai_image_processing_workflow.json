@@ -1,0 +1,704 @@
+{
+  "name": "16 - AI Image Processing Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-image-processing",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "ai-image-processing-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"event_type\"]}}",
+              "operation": "equal",
+              "value2": "image_uploaded"
+            }
+          ]
+        }
+      },
+      "id": "validate-event",
+      "name": "Validate Event",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_URL\"]}}/api/v1/process/image",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_API_KEY\"]}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "image_data"
+            },
+            {
+              "parameterType": "formData",
+              "name": "style",
+              "value": "={{$json[\"processing_options\"][\"style\"] || \"studio\"}}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "quality",
+              "value": "={{$json[\"processing_options\"][\"quality\"] || \"high\"}}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "enhance_colors",
+              "value": "={{$json[\"processing_options\"][\"enhance_colors\"] || \"true\"}}"
+            },
+            {
+              "parameterType": "formData",
+              "name": "generate_variants",
+              "value": "={{$json[\"processing_options\"][\"generate_variants\"] || \"true\"}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "start-ai-processing",
+      "name": "Start AI Processing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ai_engine_url",
+              "name": "AI_ENGINE_URL",
+              "value": "={{$vars.AI_ENGINE_URL || \"http://localhost:8001\"}}",
+              "type": "string"
+            },
+            {
+              "id": "ai_engine_api_key",
+              "name": "AI_ENGINE_API_KEY",
+              "value": "={{$vars.AI_ENGINE_API_KEY}}",
+              "type": "string"
+            },
+            {
+              "id": "backend_api_url",
+              "name": "BACKEND_API_URL",
+              "value": "={{$vars.BACKEND_API_URL || \"http://localhost:3000/api\"}}",
+              "type": "string"
+            },
+            {
+              "id": "telegram_bot_token",
+              "name": "TELEGRAM_BOT_TOKEN",
+              "value": "={{$vars.TELEGRAM_BOT_TOKEN}}",
+              "type": "string"
+            },
+            {
+              "id": "telegram_admin_chat_id",
+              "name": "TELEGRAM_ADMIN_CHAT_ID",
+              "value": "={{$vars.TELEGRAM_ADMIN_CHAT_ID}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-environment",
+      "name": "Get Environment",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [460, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"BACKEND_API_URL\"]}}/jobs/{{$json[\"job_id\"]}}/status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$vars.BACKEND_API_TOKEN}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-job-status",
+      "name": "Update Job Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-for-processing",
+      "name": "Wait for Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [900, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_URL\"]}}/api/v1/job/{{$node[\"Start AI Processing\"].json[\"job_id\"]}}/status",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_API_KEY\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-processing-status",
+      "name": "Check Processing Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1120, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"status\"]}}",
+              "operation": "equal",
+              "value2": "completed"
+            }
+          ]
+        }
+      },
+      "id": "check-completion",
+      "name": "Check Completion",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_URL\"]}}/api/v1/job/{{$node[\"Start AI Processing\"].json[\"job_id\"]}}/result",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_API_KEY\"]}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-processing-result",
+      "name": "Get Processing Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Get Environment\"].json[\"TELEGRAM_ADMIN_CHAT_ID\"]}}",
+        "text": "🎨 **AI-Bildverarbeitung abgeschlossen**\n\n📄 **Datei:** {{$node[\"Webhook Trigger\"].json[\"filename\"]}}\n🎭 **Stil:** {{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"style\"]}}\n⏱️ **Verarbeitungszeit:** {{$dateTime.format($now, \"HH:mm:ss\")}}\n✅ **Status:** Erfolgreich\n\n🔍 **Qualitätsbewertung:** {{$json[\"ai_quality_score\"]}}/100\n📊 **Varianten erstellt:** {{$json[\"variants_count\"] || 1}}\n\n[Review Center öffnen]({{$vars.DASHBOARD_URL}}/review)",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-success-notification",
+      "name": "Telegram Success Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"BACKEND_API_URL\"]}}/media/ai-processed",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$vars.BACKEND_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"original_filename\": \"{{$node[\"Webhook Trigger\"].json[\"filename\"]}}\",\n  \"job_id\": \"{{$node[\"Start AI Processing\"].json[\"job_id\"]}}\",\n  \"style\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"style\"]}}\",\n  \"processed_images\": {{JSON.stringify($json[\"processed_images\"])}},\n  \"generated_content\": {{JSON.stringify($json[\"generated_content\"])}},\n  \"quality_score\": {{$json[\"ai_quality_score\"]}},\n  \"processing_metadata\": {\n    \"style_preset\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"style\"]}}\",\n    \"quality_level\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"quality\"]}}\",\n    \"enhance_colors\": {{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"enhance_colors\"]}},\n    \"generate_variants\": {{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"generate_variants\"]}},\n    \"processed_at\": \"{{$now}}\",\n    \"processing_time_seconds\": {{$json[\"processing_time_seconds\"] || 120}}\n  },\n  \"status\": \"pending_review\"\n}",
+        "options": {}
+      },
+      "id": "save-to-backend",
+      "name": "Save to Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1780, 320]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Get Environment\"].json[\"TELEGRAM_ADMIN_CHAT_ID\"]}}",
+        "text": "❌ **AI-Bildverarbeitung fehlgeschlagen**\n\n📄 **Datei:** {{$node[\"Webhook Trigger\"].json[\"filename\"]}}\n🎭 **Stil:** {{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"style\"]}}\n⏱️ **Zeit:** {{$dateTime.format($now, \"HH:mm:ss\")}}\n\n🚫 **Fehler:** {{$json[\"error_message\"] || \"Unbekannter Fehler\"}}\n\n🔄 **Aktion erforderlich:** Bitte überprüfen Sie die Verarbeitung manuell.\n\n[Dashboard öffnen]({{$vars.DASHBOARD_URL}}/queue)",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-error-notification",
+      "name": "Telegram Error Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1560, 440],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"retry_count\"] || 0}}",
+              "operation": "smaller",
+              "value2": 3
+            }
+          ]
+        }
+      },
+      "id": "check-retry-limit",
+      "name": "Check Retry Limit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 440]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "retry-delay",
+      "name": "Retry Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1120, 560]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "increment_retry",
+              "name": "retry_count",
+              "value": "={{($json[\"retry_count\"] || 0) + 1}}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "increment-retry-count",
+      "name": "Increment Retry Count",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [900, 560]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"processing_options\"][\"generate_content\"]}}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      },
+      "id": "check-content-generation",
+      "name": "Check Content Generation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_URL\"]}}/api/v1/generate/content",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{$node[\"Get Environment\"].json[\"AI_ENGINE_API_KEY\"]}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"image_url\": \"{{$node[\"Get Processing Result\"].json[\"processed_images\"][\"enhanced\"]}}\",\n  \"product_type\": \"{{$node[\"Webhook Trigger\"].json[\"product_info\"][\"category\"] || \"fashion_item\"}}\",\n  \"target_audience\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"target_audience\"] || \"general\"}}\",\n  \"language\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"content_language\"] || \"de\"}}\",\n  \"include_seo\": true,\n  \"include_styling_tips\": true\n}",
+        "options": {}
+      },
+      "id": "generate-content",
+      "name": "Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2220, 120]
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Environment\"].json[\"BACKEND_API_URL\"]}}/products/ai-enhanced",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$vars.BACKEND_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={\n  \"original_filename\": \"{{$node[\"Webhook Trigger\"].json[\"filename\"]}}\",\n  \"ai_job_id\": \"{{$node[\"Start AI Processing\"].json[\"job_id\"]}}\",\n  \"enhanced_images\": {{JSON.stringify($node[\"Get Processing Result\"].json[\"processed_images\"])}},\n  \"generated_content\": {{JSON.stringify($node[\"Generate Content\"].json[\"content_results\"] || {})}},\n  \"quality_metrics\": {\n    \"ai_quality_score\": {{$node[\"Get Processing Result\"].json[\"ai_quality_score\"]}},\n    \"processing_time\": {{$node[\"Get Processing Result\"].json[\"processing_time_seconds\"]}},\n    \"style_applied\": \"{{$node[\"Webhook Trigger\"].json[\"processing_options\"][\"style\"]}}\",\n    \"variants_generated\": {{$node[\"Get Processing Result\"].json[\"variants_count\"] || 1}}\n  },\n  \"processing_settings\": {{JSON.stringify($node[\"Webhook Trigger\"].json[\"processing_options\"])}},\n  \"status\": \"pending_review\",\n  \"created_by\": \"ai_automation\",\n  \"requires_review\": true\n}",
+        "options": {}
+      },
+      "id": "create-product-entry",
+      "name": "Create Product Entry",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2440, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "processing_complete",
+              "name": "processing_complete",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "final_status",
+              "name": "final_status",
+              "value": "completed_successfully",
+              "type": "string"
+            },
+            {
+              "id": "total_processing_time",
+              "name": "total_processing_time",
+              "value": "={{($node[\"Get Processing Result\"].json[\"processing_time_seconds\"] || 120) + ($node[\"Generate Content\"].json[\"generation_time_seconds\"] || 30)}}",
+              "type": "number"
+            },
+            {
+              "id": "items_created",
+              "name": "items_created",
+              "value": "={{1 + ($node[\"Get Processing Result\"].json[\"variants_count\"] || 0)}}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "finalize-processing",
+      "name": "Finalize Processing",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2660, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Get Environment\"].json[\"TELEGRAM_ADMIN_CHAT_ID\"]}}",
+        "text": "✅ **AI-Pipeline vollständig abgeschlossen**\n\n📄 **Datei:** {{$node[\"Webhook Trigger\"].json[\"filename\"]}}\n🎨 **Verarbeitung:** {{$node[\"Finalize Processing\"].json[\"items_created\"]}} Bild(er) erstellt\n📝 **Content:** {{$node[\"Generate Content\"].json[\"content_results\"] ? \"Automatisch generiert\" : \"Nicht erstellt\"}}\n⏱️ **Gesamtzeit:** {{$node[\"Finalize Processing\"].json[\"total_processing_time\"]}} Sekunden\n\n🎯 **Qualität:** {{$node[\"Get Processing Result\"].json[\"ai_quality_score\"]}}/100\n📋 **Status:** Bereit für Review\n\n[Jetzt reviewen]({{$vars.DASHBOARD_URL}}/review/{{$node[\"Create Product Entry\"].json[\"product_id\"]}})",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "final-completion-notification",
+      "name": "Final Completion Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [2880, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "Telegram Bot Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Environment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Environment": {
+      "main": [
+        [
+          {
+            "node": "Validate Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Event": {
+      "main": [
+        [
+          {
+            "node": "Start AI Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Start AI Processing": {
+      "main": [
+        [
+          {
+            "node": "Update Job Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait for Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Processing": {
+      "main": [
+        [
+          {
+            "node": "Check Processing Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Processing Status": {
+      "main": [
+        [
+          {
+            "node": "Check Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Completion": {
+      "main": [
+        [
+          {
+            "node": "Get Processing Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Retry Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Processing Result": {
+      "main": [
+        [
+          {
+            "node": "Telegram Success Notification",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save to Backend",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Content Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Retry Limit": {
+      "main": [
+        [
+          {
+            "node": "Increment Retry Count",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Retry Count": {
+      "main": [
+        [
+          {
+            "node": "Retry Delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Delay": {
+      "main": [
+        [
+          {
+            "node": "Check Processing Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Content Generation": {
+      "main": [
+        [
+          {
+            "node": "Generate Content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Product Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Content": {
+      "main": [
+        [
+          {
+            "node": "Create Product Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Product Entry": {
+      "main": [
+        [
+          {
+            "node": "Finalize Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize Processing": {
+      "main": [
+        [
+          {
+            "node": "Final Completion Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "workflow-ai-processing-v1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "16",
+  "tags": [
+    {
+      "createdAt": "2024-06-04T06:09:46.000Z",
+      "updatedAt": "2024-06-04T06:09:46.000Z",
+      "id": "ai-processing",
+      "name": "AI Processing"
+    }
+  ]
+}

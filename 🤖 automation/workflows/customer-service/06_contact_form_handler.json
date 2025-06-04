@@ -1,0 +1,596 @@
+{
+  "name": "06 - Kontaktformular Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "contact-form",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-contact-form",
+      "name": "Webhook - Kontaktformular",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "contact-form-webhook",
+      "notes": "Empfängt Kontaktformular-Nachrichten von der Website"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "name-exists",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            },
+            {
+              "id": "email-valid",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "@",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "message-exists",
+              "leftValue": "={{ $json.message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "validate-form-data",
+      "name": "Formulardaten validieren",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert eingehende Kontaktformular-Daten"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "generate-ticket-id",
+              "name": "ticketId",
+              "value": "=TICKET-{{ DateTime.now().toFormat('yyyyMMdd') }}-{{ Math.floor(Math.random() * 10000).toString().padStart(4, '0') }}",
+              "type": "string"
+            },
+            {
+              "id": "format-subject",
+              "name": "subject",
+              "value": "={{ $json.subject || 'Neue Kontaktanfrage von ' + $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "categorize-inquiry",
+              "name": "category",
+              "value": "={{ $json.category || 'general' }}",
+              "type": "string"
+            },
+            {
+              "id": "set-priority",
+              "name": "priority",
+              "value": "={{ $json.priority || 'normal' }}",
+              "type": "string"
+            },
+            {
+              "id": "format-timestamp",
+              "name": "submittedAt",
+              "value": "={{ DateTime.now().toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "format-customer-info",
+              "name": "customerInfo",
+              "value": "={{ {\n  name: $json.name,\n  email: $json.email,\n  phone: $json.phone || null,\n  company: $json.company || null\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "process-contact-data",
+      "name": "Kontaktdaten verarbeiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [680, 300],
+      "notes": "Verarbeitet und kategorisiert Kontaktanfrage"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/support/tickets",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "ticketId",
+              "value": "={{ $json.ticketId }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "category",
+              "value": "={{ $json.category }}"
+            },
+            {
+              "name": "priority",
+              "value": "={{ $json.priority }}"
+            },
+            {
+              "name": "customerInfo",
+              "value": "={{ JSON.stringify($json.customerInfo) }}"
+            },
+            {
+              "name": "source",
+              "value": "contact_form"
+            },
+            {
+              "name": "status",
+              "value": "new"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-support-ticket",
+      "name": "Support-Ticket erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "notes": "Erstellt Support-Ticket im Backend"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "high-priority",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "urgent-priority",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "urgent",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-priority",
+      "name": "Hohe Priorität?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "notes": "Prüft ob Anfrage hohe Priorität hat"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "order-inquiry",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "order",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "support-inquiry",
+              "leftValue": "={{ $json.category }}",
+              "rightValue": "support",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-category",
+      "name": "Bestellungs-/Support-Anfrage?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 400],
+      "notes": "Prüft Kategorie für Routing"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🚨 **DRINGENDE KONTAKTANFRAGE** 🚨\n\n🎫 **Ticket:** `{{ $json.ticketId }}`\n📋 **Betreff:** {{ $json.subject }}\n👤 **Kunde:** {{ $json.customerInfo.name }}\n📧 **E-Mail:** {{ $json.customerInfo.email }}\n{{ $json.customerInfo.phone ? '📞 **Telefon:** ' + $json.customerInfo.phone + '\\n' : '' }}📂 **Kategorie:** {{ $json.category }}\n⚡ **Priorität:** **{{ $json.priority.toUpperCase() }}**\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n💬 **Nachricht:**\n{{ $json.message.length > 200 ? $json.message.substring(0, 200) + '...' : $json.message }}\n\n🔗 [Ticket bearbeiten]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/support/{{ $json.ticketId }})\n\n*Sofortiger Support erforderlich!*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-urgent-alert",
+      "name": "Telegram Dringend-Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet dringende Benachrichtigung bei hoher Priorität"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "📞 **NEUE KONTAKTANFRAGE** 📞\n\n🎫 **Ticket:** `{{ $json.ticketId }}`\n📋 **Betreff:** {{ $json.subject }}\n👤 **Kunde:** {{ $json.customerInfo.name }}\n📧 **E-Mail:** {{ $json.customerInfo.email }}\n📂 **Kategorie:** {{ $json.category }}\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n💬 **Nachricht:**\n{{ $json.message.length > 150 ? $json.message.substring(0, 150) + '...' : $json.message }}\n\n🔗 [Ticket bearbeiten]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/support/{{ $json.ticketId }})\n\n*Kontaktformular Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-standard-notification",
+      "name": "Telegram Standard-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Standard-Benachrichtigung für normale Anfragen"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SUPPORT_EMAIL || $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerInfo.email }}",
+        "subject": "Ihre Kontaktanfrage wurde erhalten - Ticket #{{ $json.ticketId }}",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #3498db; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .ticket-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #3498db; margin: 20px 0; }\n        .button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>📞 Kontaktanfrage erhalten</h1>\n    </div>\n    \n    <div class=\"content\">\n        <h2>Hallo {{ $json.customerInfo.name }},</h2>\n        \n        <p>vielen Dank für Ihre Kontaktanfrage. Wir haben Ihre Nachricht erhalten und werden schnellstmöglich antworten.</p>\n        \n        <div class=\"ticket-box\">\n            <h3>📋 Ihre Anfrage-Details</h3>\n            <p><strong>Ticket-Nummer:</strong> {{ $json.ticketId }}</p>\n            <p><strong>Betreff:</strong> {{ $json.subject }}</p>\n            <p><strong>Kategorie:</strong> {{ $json.category }}</p>\n            <p><strong>Eingegangen am:</strong> {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}</p>\n        </div>\n        \n        <div class=\"ticket-box\">\n            <h3>💬 Ihre Nachricht</h3>\n            <p>{{ $json.message }}</p>\n        </div>\n        \n        <p><strong>Was passiert als nächstes?</strong></p>\n        <ul>\n            <li>🔍 Wir prüfen Ihre Anfrage sorgfältig</li>\n            <li>⏱️ Sie erhalten eine Antwort innerhalb von 24 Stunden</li>\n            <li>📧 Alle Kommunikation erfolgt über Ihre angegebene E-Mail-Adresse</li>\n            <li>🎫 Verwenden Sie Ihre Ticket-Nummer für Rückfragen</li>\n        </ul>\n        \n        {{ $json.priority === 'urgent' || $json.priority === 'high' ? '<p style=\"color: #e74c3c;\"><strong>⚡ Ihre Anfrage wurde als dringend eingestuft und wird priorisiert bearbeitet.</strong></p>' : '' }}\n        \n        <p>Bei weiteren Fragen können Sie uns jederzeit kontaktieren.</p>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Mit freundlichen Grüßen<br>Ihr DressForPleasure Kundenservice Team</p>\n        <p>📧 {{ $env.SUPPORT_EMAIL || $env.FROM_EMAIL }} | 📞 {{ $env.SUPPORT_PHONE || '+49 (0) XXX XXXXXXX' }}</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-auto-reply",
+      "name": "Automatische Antwort senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet automatische Bestätigung an Kunden"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.SUPPORT_EMAIL || $env.ADMIN_EMAIL }}",
+        "subject": "{{ $json.priority === 'urgent' || $json.priority === 'high' ? '🚨 DRINGEND: ' : '📞 ' }}Neue Kontaktanfrage - {{ $json.ticketId }}",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: {{ $json.priority === 'urgent' || $json.priority === 'high' ? '#e74c3c' : '#3498db' }}; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .ticket-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid {{ $json.priority === 'urgent' || $json.priority === 'high' ? '#e74c3c' : '#3498db' }}; margin: 20px 0; }\n        .customer-info { background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #27ae60; margin: 20px 0; }\n        .button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n        .priority-high { color: #e74c3c; font-weight: bold; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>{{ $json.priority === 'urgent' || $json.priority === 'high' ? '🚨 DRINGENDE' : '📞 NEUE' }} KONTAKTANFRAGE</h1>\n    </div>\n    \n    <div class=\"content\">\n        <div class=\"ticket-box\">\n            <h3>🎫 Ticket-Informationen</h3>\n            <p><strong>Ticket-ID:</strong> {{ $json.ticketId }}</p>\n            <p><strong>Betreff:</strong> {{ $json.subject }}</p>\n            <p><strong>Kategorie:</strong> {{ $json.category }}</p>\n            <p><strong>Priorität:</strong> <span class=\"{{ $json.priority === 'urgent' || $json.priority === 'high' ? 'priority-high' : '' }}\">{{ $json.priority.toUpperCase() }}</span></p>\n            <p><strong>Eingegangen:</strong> {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}</p>\n            <p><strong>Quelle:</strong> Kontaktformular Website</p>\n        </div>\n        \n        <div class=\"customer-info\">\n            <h3>👤 Kundeninformationen</h3>\n            <p><strong>Name:</strong> {{ $json.customerInfo.name }}</p>\n            <p><strong>E-Mail:</strong> {{ $json.customerInfo.email }}</p>\n            {{ $json.customerInfo.phone ? '<p><strong>Telefon:</strong> ' + $json.customerInfo.phone + '</p>' : '' }}\n            {{ $json.customerInfo.company ? '<p><strong>Unternehmen:</strong> ' + $json.customerInfo.company + '</p>' : '' }}\n        </div>\n        \n        <div class=\"ticket-box\">\n            <h3>💬 Kundennachricht</h3>\n            <p style=\"background: #f8f9fa; padding: 15px; border-radius: 5px; font-style: italic;\">{{ $json.message }}</p>\n        </div>\n        \n        {{ $json.priority === 'urgent' || $json.priority === 'high' ? '<div style=\"background: #fee; border: 2px solid #e74c3c; padding: 15px; border-radius: 8px; margin: 20px 0;\"><h3 style=\"color: #e74c3c; margin-top: 0;\">⚡ DRINGENDE BEARBEITUNG ERFORDERLICH</h3><p>Diese Anfrage wurde als <strong>' + $json.priority.toUpperCase() + '</strong> eingestuft und sollte schnellstmöglich bearbeitet werden.</p></div>' : '' }}\n        \n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/support/{{ $json.ticketId }}\" class=\"button\">Ticket bearbeiten</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Automatische Benachrichtigung vom DressForPleasure Kontaktformular-System</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-internal-notification",
+      "name": "Interne Benachrichtigung senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1780, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierte Benachrichtigung an Support-Team"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Ihre Nachricht wurde erfolgreich übermittelt\", \"ticketId\": $json.ticketId, \"estimatedResponse\": \"24 Stunden\" }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2000, 300],
+      "notes": "Bestätigt erfolgreiche Verarbeitung an Website"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Ungültige Formulardaten. Bitte überprüfen Sie Ihre Eingaben.\" }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Sendet Fehlerantwort bei ungültigen Daten"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "contact_form_handler"
+            },
+            {
+              "name": "ticket_id",
+              "value": "={{ $json.ticketId }}"
+            },
+            {
+              "name": "event_type",
+              "value": "contact_form_processed"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Contact form processed and ticket created"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ ticketId: $json.ticketId, category: $json.category, priority: $json.priority, customerEmail: $json.customerInfo.email }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-contact-event",
+      "name": "Kontakt-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 400],
+      "notes": "Loggt Kontaktformular-Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Webhook - Kontaktformular": {
+      "main": [
+        [
+          {
+            "node": "Formulardaten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formulardaten validieren": {
+      "main": [
+        [
+          {
+            "node": "Kontaktdaten verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kontaktdaten verarbeiten": {
+      "main": [
+        [
+          {
+            "node": "Support-Ticket erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support-Ticket erstellen": {
+      "main": [
+        [
+          {
+            "node": "Hohe Priorität?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Bestellungs-/Support-Anfrage?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hohe Priorität?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Dringend-Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestellungs-/Support-Anfrage?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Standard-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Dringend-Alert": {
+      "main": [
+        [
+          {
+            "node": "Automatische Antwort senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Standard-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Automatische Antwort senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automatische Antwort senden": {
+      "main": [
+        [
+          {
+            "node": "Interne Benachrichtigung senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interne Benachrichtigung senden": {
+      "main": [
+        [
+          {
+            "node": "Kontakt-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kontakt-Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "6",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "6",
+      "name": "customer-service"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "10",
+      "name": "support"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "3",
+      "name": "critical"
+    }
+  ]
+}

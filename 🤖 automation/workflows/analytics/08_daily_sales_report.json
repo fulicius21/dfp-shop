@@ -1,0 +1,492 @@
+{
+  "name": "08 - Täglicher Sales Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 20 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-report",
+      "name": "Täglicher Report um 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft täglich um 20:00 Uhr"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-date-range",
+              "name": "dateRange",
+              "value": "={{ {\n  today: DateTime.now().toFormat('yyyy-MM-dd'),\n  yesterday: DateTime.now().minus({days: 1}).toFormat('yyyy-MM-dd'),\n  weekStart: DateTime.now().startOf('week').toFormat('yyyy-MM-dd'),\n  monthStart: DateTime.now().startOf('month').toFormat('yyyy-MM-dd'),\n  yearStart: DateTime.now().startOf('year').toFormat('yyyy-MM-dd')\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-date-ranges",
+      "name": "Datumsbereiche setzen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Bereitet Datumsbereiche für Analyse vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/sales/daily",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.dateRange.today }}"
+            },
+            {
+              "name": "includeComparison",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-daily-sales",
+      "name": "Tagesverkäufe abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Ruft Verkaufsdaten für heute ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/products/top-selling",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "period",
+              "value": "today"
+            },
+            {
+              "name": "limit",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-top-products",
+      "name": "Top-Produkte abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "notes": "Ruft beste verkaufte Produkte ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/customers/new",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.dateRange.today }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-new-customers",
+      "name": "Neue Kunden abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 400],
+      "notes": "Ruft neue Kundenregistrierungen ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comprehensive Sales Report Analysis\nconst salesData = $input.all()[0].json;\nconst topProducts = $input.all()[1].json;\nconst newCustomers = $input.all()[2].json;\n\n// Sales metrics\nconst todaySales = salesData.today || {};\nconst yesterdaySales = salesData.yesterday || {};\nconst thisWeekSales = salesData.thisWeek || {};\nconst thisMonthSales = salesData.thisMonth || {};\n\n// Calculate growth percentages\nfunction calculateGrowth(current, previous) {\n  if (!previous || previous === 0) return current > 0 ? 100 : 0;\n  return ((current - previous) / previous * 100).toFixed(1);\n}\n\n// Performance analysis\nconst performance = {\n  dailyRevenue: {\n    today: todaySales.revenue || 0,\n    yesterday: yesterdaySales.revenue || 0,\n    growth: calculateGrowth(todaySales.revenue || 0, yesterdaySales.revenue || 0)\n  },\n  dailyOrders: {\n    today: todaySales.orderCount || 0,\n    yesterday: yesterdaySales.orderCount || 0,\n    growth: calculateGrowth(todaySales.orderCount || 0, yesterdaySales.orderCount || 0)\n  },\n  averageOrderValue: {\n    today: todaySales.averageOrderValue || 0,\n    yesterday: yesterdaySales.averageOrderValue || 0,\n    growth: calculateGrowth(todaySales.averageOrderValue || 0, yesterdaySales.averageOrderValue || 0)\n  },\n  newCustomers: {\n    today: newCustomers.count || 0,\n    growth: calculateGrowth(newCustomers.count || 0, newCustomers.previousDay || 0)\n  }\n};\n\n// Top products summary\nconst topProductsSummary = topProducts.products ? topProducts.products.slice(0, 5).map(product => ({\n  name: product.name,\n  sales: product.unitsSold,\n  revenue: product.revenue\n})) : [];\n\n// Weekly and monthly progress\nconst weeklyProgress = {\n  revenue: thisWeekSales.revenue || 0,\n  orders: thisWeekSales.orderCount || 0,\n  target: thisWeekSales.target || 0,\n  progressPercent: thisWeekSales.target ? ((thisWeekSales.revenue / thisWeekSales.target) * 100).toFixed(1) : 0\n};\n\nconst monthlyProgress = {\n  revenue: thisMonthSales.revenue || 0,\n  orders: thisMonthSales.orderCount || 0,\n  target: thisMonthSales.target || 0,\n  progressPercent: thisMonthSales.target ? ((thisMonthSales.revenue / thisMonthSales.target) * 100).toFixed(1) : 0\n};\n\n// Generate insights\nconst insights = [];\n\nif (performance.dailyRevenue.growth > 10) {\n  insights.push(`📈 Starker Umsatzanstieg: +${performance.dailyRevenue.growth}%`);\n} else if (performance.dailyRevenue.growth < -10) {\n  insights.push(`📉 Umsatzrückgang: ${performance.dailyRevenue.growth}%`);\n}\n\nif (performance.newCustomers.today > 5) {\n  insights.push(`👥 Guter Kundenzuwachs: ${performance.newCustomers.today} neue Kunden`);\n}\n\nif (topProductsSummary.length > 0 && topProductsSummary[0].sales > 10) {\n  insights.push(`🏆 Top-Verkäufer: ${topProductsSummary[0].name} (${topProductsSummary[0].sales} Stück)`);\n}\n\nif (weeklyProgress.progressPercent > 100) {\n  insights.push(`🎯 Wochenziel übertroffen: ${weeklyProgress.progressPercent}%`);\n} else if (weeklyProgress.progressPercent < 50) {\n  insights.push(`⚠️ Wochenziel gefährdet: ${weeklyProgress.progressPercent}%`);\n}\n\nreturn {\n  reportDate: new Date().toLocaleDateString('de-DE'),\n  performance,\n  topProducts: topProductsSummary,\n  weeklyProgress,\n  monthlyProgress,\n  insights,\n  summary: {\n    totalRevenue: performance.dailyRevenue.today,\n    totalOrders: performance.dailyOrders.today,\n    newCustomers: performance.newCustomers.today,\n    topProductName: topProductsSummary.length > 0 ? topProductsSummary[0].name : 'Keine Verkäufe'\n  }\n};"
+      },
+      "id": "analyze-sales-data",
+      "name": "Verkaufsdaten analysieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Führt umfassende Verkaufsanalyse durch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Telegram Report Message\nconst report = $json;\n\nlet message = `📊 **TÄGLICHER SALES REPORT** 📊\\n`;\nmessage += `📅 **${report.reportDate}**\\n\\n`;\n\n// Key Performance Indicators\nmessage += `💰 **UMSATZ**\\n`;\nmessage += `├ Heute: **${report.performance.dailyRevenue.today.toFixed(2)}€**\\n`;\nmessage += `├ Gestern: ${report.performance.dailyRevenue.yesterday.toFixed(2)}€\\n`;\nmessage += `└ Trend: ${report.performance.dailyRevenue.growth > 0 ? '📈' : '📉'} **${report.performance.dailyRevenue.growth}%**\\n\\n`;\n\nmessage += `🛒 **BESTELLUNGEN**\\n`;\nmessage += `├ Anzahl: **${report.performance.dailyOrders.today}**\\n`;\nmessage += `├ Ø Wert: **${report.performance.averageOrderValue.today.toFixed(2)}€**\\n`;\nmessage += `└ Trend: ${report.performance.dailyOrders.growth > 0 ? '📈' : '📉'} **${report.performance.dailyOrders.growth}%**\\n\\n`;\n\nmessage += `👥 **NEUE KUNDEN**\\n`;\nmessage += `└ Heute: **${report.performance.newCustomers.today}** (+${report.performance.newCustomers.growth}%)\\n\\n`;\n\n// Top Products (limit to top 3 for Telegram)\nif (report.topProducts.length > 0) {\n  message += `🏆 **TOP PRODUKTE**\\n`;\n  report.topProducts.slice(0, 3).forEach((product, index) => {\n    const emoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';\n    message += `${emoji} ${product.name}: **${product.sales}** Stück\\n`;\n  });\n  message += `\\n`;\n}\n\n// Weekly Progress\nmessage += `📈 **WOCHENFORTSCHRITT**\\n`;\nmessage += `├ Umsatz: **${report.weeklyProgress.revenue.toFixed(2)}€**\\n`;\nmessage += `├ Ziel: ${report.weeklyProgress.target.toFixed(2)}€\\n`;\nmessage += `└ Fortschritt: **${report.weeklyProgress.progressPercent}%**\\n\\n`;\n\n// Monthly Progress\nmessage += `📊 **MONATSFORTSCHRITT**\\n`;\nmessage += `├ Umsatz: **${report.monthlyProgress.revenue.toFixed(2)}€**\\n`;\nmessage += `└ Fortschritt: **${report.monthlyProgress.progressPercent}%**\\n\\n`;\n\n// Insights\nif (report.insights.length > 0) {\n  message += `💡 **INSIGHTS**\\n`;\n  report.insights.forEach(insight => {\n    message += `• ${insight}\\n`;\n  });\n  message += `\\n`;\n}\n\nmessage += `🔗 [Dashboard öffnen](${$env.DRESSFORP_FRONTEND_URL}/admin/analytics)\\n\\n`;\nmessage += `*Automatischer Sales Report*`;\n\nreturn { telegramMessage: message };"
+      },
+      "id": "generate-telegram-report",
+      "name": "Telegram Report erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "Erstellt formatierten Telegram-Report"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.telegramMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-telegram-report",
+      "name": "Telegram Report senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet täglichen Sales Report per Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "📊 Täglicher Sales Report - {{ $json.reportDate }} ({{ $json.summary.totalRevenue.toFixed(2) }}€)",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 800px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%); color: white; padding: 30px 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }\n        .metric-card { background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #3498db; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }\n        .metric-value { font-size: 24px; font-weight: bold; color: #2c3e50; margin: 10px 0; }\n        .metric-trend { font-size: 14px; margin-top: 5px; }\n        .trend-up { color: #27ae60; }\n        .trend-down { color: #e74c3c; }\n        .section { background: white; padding: 20px; border-radius: 10px; margin: 20px 0; }\n        .products-table { width: 100%; border-collapse: collapse; margin: 15px 0; }\n        .products-table th, .products-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }\n        .products-table th { background: #f8f9fa; }\n        .progress-bar { background: #ecf0f1; height: 20px; border-radius: 10px; overflow: hidden; margin: 10px 0; }\n        .progress-fill { height: 100%; background: linear-gradient(90deg, #27ae60, #2ecc71); transition: width 0.3s ease; }\n        .insights { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 15px; margin: 20px 0; }\n        .insight-item { margin: 5px 0; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>📊 Täglicher Sales Report</h1>\n            <p>{{ $json.reportDate }}</p>\n        </div>\n        \n        <div class=\"content\">\n            <!-- Key Metrics -->\n            <div class=\"metrics-grid\">\n                <div class=\"metric-card\">\n                    <h3>💰 Tagesumsatz</h3>\n                    <div class=\"metric-value\">{{ $json.performance.dailyRevenue.today.toFixed(2) }}€</div>\n                    <div class=\"metric-trend {{ $json.performance.dailyRevenue.growth >= 0 ? 'trend-up' : 'trend-down' }}\">\n                        {{ $json.performance.dailyRevenue.growth >= 0 ? '📈' : '📉' }} {{ $json.performance.dailyRevenue.growth }}% vs. gestern\n                    </div>\n                </div>\n                \n                <div class=\"metric-card\">\n                    <h3>🛒 Bestellungen</h3>\n                    <div class=\"metric-value\">{{ $json.performance.dailyOrders.today }}</div>\n                    <div class=\"metric-trend {{ $json.performance.dailyOrders.growth >= 0 ? 'trend-up' : 'trend-down' }}\">\n                        {{ $json.performance.dailyOrders.growth >= 0 ? '📈' : '📉' }} {{ $json.performance.dailyOrders.growth }}% vs. gestern\n                    </div>\n                </div>\n                \n                <div class=\"metric-card\">\n                    <h3>💎 Ø Bestellwert</h3>\n                    <div class=\"metric-value\">{{ $json.performance.averageOrderValue.today.toFixed(2) }}€</div>\n                    <div class=\"metric-trend {{ $json.performance.averageOrderValue.growth >= 0 ? 'trend-up' : 'trend-down' }}\">\n                        {{ $json.performance.averageOrderValue.growth >= 0 ? '📈' : '📉' }} {{ $json.performance.averageOrderValue.growth }}%\n                    </div>\n                </div>\n                \n                <div class=\"metric-card\">\n                    <h3>👥 Neue Kunden</h3>\n                    <div class=\"metric-value\">{{ $json.performance.newCustomers.today }}</div>\n                    <div class=\"metric-trend trend-up\">\n                        +{{ $json.performance.newCustomers.growth }}% Wachstum\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Top Products -->\n            {{ $json.topProducts.length > 0 ? '\n            <div class=\"section\">\n                <h3>🏆 Top-verkaufte Produkte heute</h3>\n                <table class=\"products-table\">\n                    <thead>\n                        <tr>\n                            <th>Rang</th>\n                            <th>Produkt</th>\n                            <th>Verkäufe</th>\n                            <th>Umsatz</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        ' + $json.topProducts.map((product, index) => {\n                            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];\n                            return '<tr><td>' + (medals[index] || (index + 1)) + '</td><td>' + product.name + '</td><td>' + product.sales + ' Stück</td><td>' + product.revenue.toFixed(2) + '€</td></tr>';\n                        }).join('') + '\n                    </tbody>\n                </table>\n            </div>' : '' }}\n            \n            <!-- Progress Tracking -->\n            <div class=\"section\">\n                <h3>📈 Fortschritt vs. Ziele</h3>\n                \n                <h4>📅 Diese Woche</h4>\n                <p>{{ $json.weeklyProgress.revenue.toFixed(2) }}€ von {{ $json.weeklyProgress.target.toFixed(2) }}€ Ziel</p>\n                <div class=\"progress-bar\">\n                    <div class=\"progress-fill\" style=\"width: {{ Math.min($json.weeklyProgress.progressPercent, 100) }}%\"></div>\n                </div>\n                <p style=\"text-align: center; margin: 5px 0; font-weight: bold;\">{{ $json.weeklyProgress.progressPercent }}%</p>\n                \n                <h4>📊 Dieser Monat</h4>\n                <p>{{ $json.monthlyProgress.revenue.toFixed(2) }}€ von {{ $json.monthlyProgress.target.toFixed(2) }}€ Ziel</p>\n                <div class=\"progress-bar\">\n                    <div class=\"progress-fill\" style=\"width: {{ Math.min($json.monthlyProgress.progressPercent, 100) }}%\"></div>\n                </div>\n                <p style=\"text-align: center; margin: 5px 0; font-weight: bold;\">{{ $json.monthlyProgress.progressPercent }}%</p>\n            </div>\n            \n            <!-- Insights -->\n            {{ $json.insights.length > 0 ? '\n            <div class=\"insights\">\n                <h3>💡 Erkenntnisse & Trends</h3>\n                ' + $json.insights.map(insight => '<div class=\"insight-item\">• ' + insight + '</div>').join('') + '\n            </div>' : '' }}\n            \n            <div class=\"section\" style=\"text-align: center;\">\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/analytics\" style=\"background: #3498db; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block;\">📊 Vollständiges Dashboard öffnen</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Automatischer Sales Report - {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}<br>\n            DressForPleasure Analytics System</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-email-report",
+      "name": "E-Mail Report senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1780, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierten E-Mail-Report"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "low-sales",
+              "leftValue": "={{ $json.performance.dailyRevenue.today }}",
+              "rightValue": "100",
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            },
+            {
+              "id": "negative-growth",
+              "leftValue": "={{ parseFloat($json.performance.dailyRevenue.growth) }}",
+              "rightValue": "-20",
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-sales-alerts",
+      "name": "Sales Alert auslösen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Prüft ob Sales-Alerts erforderlich sind"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🚨 **SALES ALERT** 🚨\n\n⚠️ **Niedrige Tagesverkäufe erkannt**\n\n📉 **Heute:** {{ $json.performance.dailyRevenue.today.toFixed(2) }}€\n📊 **Trend:** {{ $json.performance.dailyRevenue.growth }}% vs. gestern\n\n💡 **Empfohlene Maßnahmen:**\n• Marketing-Kampagne aktivieren\n• Social Media verstärken\n• Special Offers prüfen\n• Kundenrückgewinnung starten\n\n🔗 [Sofortmaßnahmen]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/marketing)\n\n*Sales Alert Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-sales-alert",
+      "name": "Sales Alert senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Alert bei niedrigen Verkäufen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "daily_sales_report"
+            },
+            {
+              "name": "event_type",
+              "value": "daily_report_generated"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Daily sales report generated and sent"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify($json.summary) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-report-event",
+      "name": "Report-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 400],
+      "notes": "Loggt Report-Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Täglicher Report um 20:00": {
+      "main": [
+        [
+          {
+            "node": "Datumsbereiche setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datumsbereiche setzen": {
+      "main": [
+        [
+          {
+            "node": "Tagesverkäufe abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tagesverkäufe abrufen": {
+      "main": [
+        [
+          {
+            "node": "Top-Produkte abrufen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Neue Kunden abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Top-Produkte abrufen": {
+      "main": [
+        [
+          {
+            "node": "Verkaufsdaten analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neue Kunden abrufen": {
+      "main": [
+        [
+          {
+            "node": "Verkaufsdaten analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verkaufsdaten analysieren": {
+      "main": [
+        [
+          {
+            "node": "Telegram Report erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Report erstellen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Report senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Report senden": {
+      "main": [
+        [
+          {
+            "node": "E-Mail Report senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail Report senden": {
+      "main": [
+        [
+          {
+            "node": "Sales Alert auslösen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales Alert auslösen?": {
+      "main": [
+        [
+          {
+            "node": "Sales Alert senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales Alert senden": {
+      "main": [
+        [
+          {
+            "node": "Report-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "8",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "13",
+      "name": "analytics"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "14",
+      "name": "reports"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

@@ -1,0 +1,719 @@
+{
+  "name": "14 - Abandoned Cart Recovery",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=/webhook/cart-abandoned",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "webhook-cart-abandoned",
+      "name": "Cart Abandoned Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "cart-abandoned",
+      "notes": "Webhook für verlassene Warenkörbe"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-cart-check",
+      "name": "Alle 2h Cart Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 500],
+      "notes": "Läuft alle 2 Stunden für automatische Cart-Recovery"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate and enhance cart abandonment data\nconst inputData = $input.first().json;\n\n// For webhook trigger\nif (inputData.cartId || inputData.cart_id) {\n  const cartData = {\n    cartId: inputData.cartId || inputData.cart_id,\n    customerId: inputData.customerId || inputData.customer_id,\n    customerEmail: inputData.customerEmail || inputData.customer_email,\n    customerName: inputData.customerName || inputData.customer_name || 'Valued Customer',\n    items: inputData.items || [],\n    totalValue: inputData.totalValue || inputData.total_value || 0,\n    currency: inputData.currency || 'EUR',\n    abandonedAt: inputData.abandonedAt || inputData.abandoned_at || new Date().toISOString(),\n    sessionDuration: inputData.sessionDuration || inputData.session_duration || 0,\n    source: inputData.source || 'website',\n    deviceType: inputData.deviceType || inputData.device_type || 'unknown',\n    userAgent: inputData.userAgent || inputData.user_agent || '',\n    checkoutStep: inputData.checkoutStep || inputData.checkout_step || 'cart'\n  };\n  \n  return { \n    cartData,\n    triggerType: 'webhook',\n    isValidCart: cartData.cartId && cartData.customerEmail && cartData.items.length > 0\n  };\n}\n\n// For scheduled trigger - signal to fetch abandoned carts\nreturn {\n  triggerType: 'scheduled',\n  fetchAbandonedCarts: true,\n  checkTime: new Date().toISOString()\n};"
+      },
+      "id": "validate-cart-data",
+      "name": "Cart-Daten validieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert und verarbeitet Cart-Daten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.triggerType }}",
+            "operation": "equal",
+            "rightValue": "scheduled"
+          }
+        }
+      },
+      "id": "check-trigger-type",
+      "name": "Geplanter Trigger?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Unterscheidet zwischen Webhook und geplanten Triggern"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/carts/abandoned",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "hours",
+              "value": "2"
+            },
+            {
+              "name": "minValue",
+              "value": "10"
+            },
+            {
+              "name": "includeCustomerData",
+              "value": "true"
+            },
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-abandoned-carts",
+      "name": "Verlassene Carts abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "notes": "Ruft verlassene Warenkörbe der letzten 2h ab"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "abandonedCarts",
+        "options": {}
+      },
+      "id": "split-abandoned-carts",
+      "name": "Carts aufteilen",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1120, 200],
+      "notes": "Teilt Liste verlassener Carts für individuelle Verarbeitung"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/customers/{{ $json.cartData.customerId || $json.customerId }}/recovery-eligibility",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "cartValue",
+              "value": "={{ $json.cartData ? $json.cartData.totalValue : $json.totalValue }}"
+            },
+            {
+              "name": "checkOptOut",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-recovery-eligibility",
+      "name": "Recovery-Berechtigung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 400],
+      "notes": "Prüft ob Kunde für Cart-Recovery berechtigt ist"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.eligible }}",
+            "operation": "equal",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-eligibility",
+      "name": "Berechtigt für Recovery?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 400],
+      "notes": "Prüft Berechtigung für Cart-Recovery"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine cart recovery strategy based on customer data and cart value\nconst cartData = $input.all()[0].json.cartData || $input.all()[0].json;\nconst eligibilityData = $input.all()[1].json;\n\n// Customer analysis\nconst customerTier = eligibilityData.customerTier || 'standard';\nconst previousOrders = eligibilityData.previousOrders || 0;\nconst averageOrderValue = eligibilityData.averageOrderValue || 0;\nconst lastOrderDays = eligibilityData.daysSinceLastOrder || 999;\nconst recoveryAttempts = eligibilityData.previousRecoveryAttempts || 0;\n\n// Cart analysis\nconst cartValue = cartData.totalValue || 0;\nconst itemCount = cartData.items?.length || 0;\nconst abandonedHours = Math.abs(new Date() - new Date(cartData.abandonedAt)) / (1000 * 60 * 60);\n\n// Strategy determination\nlet strategy = {\n  type: 'standard',\n  urgency: 'medium',\n  incentive: 'none',\n  incentiveValue: 0,\n  personalizedMessage: false,\n  followUpSequence: false,\n  waitTime: 1, // hours\n  maxAttempts: 2\n};\n\n// High-value cart strategy\nif (cartValue >= 100) {\n  strategy.type = 'high_value';\n  strategy.urgency = 'high';\n  strategy.incentive = 'discount';\n  strategy.incentiveValue = cartValue >= 200 ? 15 : 10;\n  strategy.personalizedMessage = true;\n  strategy.followUpSequence = true;\n  strategy.waitTime = 0.5;\n  strategy.maxAttempts = 3;\n}\n\n// VIP customer strategy\nif (customerTier === 'vip' || customerTier === 'premium') {\n  strategy.urgency = 'high';\n  strategy.incentive = 'discount';\n  strategy.incentiveValue = Math.max(strategy.incentiveValue, 15);\n  strategy.personalizedMessage = true;\n  strategy.followUpSequence = true;\n  strategy.maxAttempts = 4;\n}\n\n// New customer strategy\nif (previousOrders === 0) {\n  strategy.type = 'new_customer';\n  strategy.incentive = 'welcome_discount';\n  strategy.incentiveValue = 10;\n  strategy.personalizedMessage = true;\n  strategy.maxAttempts = 3;\n}\n\n// Returning customer strategy\nif (previousOrders > 0 && lastOrderDays > 90) {\n  strategy.type = 'win_back';\n  strategy.incentive = 'special_offer';\n  strategy.incentiveValue = 12;\n  strategy.personalizedMessage = true;\n  strategy.followUpSequence = true;\n}\n\n// Quick abandonment (< 2 hours) - immediate recovery\nif (abandonedHours < 2) {\n  strategy.waitTime = 0.25; // 15 minutes\n  strategy.urgency = 'immediate';\n}\n\n// Multiple items - bundle offer\nif (itemCount >= 3) {\n  strategy.incentive = cartValue >= 80 ? 'free_shipping' : 'bundle_discount';\n  strategy.incentiveValue = strategy.incentive === 'bundle_discount' ? 8 : 0;\n}\n\n// Limit recovery attempts\nif (recoveryAttempts >= strategy.maxAttempts) {\n  return {\n    skipRecovery: true,\n    reason: 'max_attempts_reached',\n    attempts: recoveryAttempts\n  };\n}\n\n// Low-value cart filter\nif (cartValue < 15 && customerTier === 'standard') {\n  return {\n    skipRecovery: true,\n    reason: 'low_value_cart',\n    cartValue: cartValue\n  };\n}\n\n// Generate recovery token\nconst recoveryToken = 'cart_' + cartData.cartId + '_' + Date.now();\n\n// Product recommendations\nconst productRecommendations = cartData.items?.map(item => ({\n  id: item.productId,\n  name: item.name,\n  price: item.price,\n  image: item.image\n})) || [];\n\nreturn {\n  recoveryStrategy: strategy,\n  cartData: cartData,\n  customerData: {\n    tier: customerTier,\n    previousOrders: previousOrders,\n    averageOrderValue: averageOrderValue,\n    lastOrderDays: lastOrderDays\n  },\n  recoveryToken: recoveryToken,\n  productRecommendations: productRecommendations,\n  skipRecovery: false,\n  scheduledSendTime: new Date(Date.now() + (strategy.waitTime * 60 * 60 * 1000)).toISOString()\n};"
+      },
+      "id": "determine-recovery-strategy",
+      "name": "Recovery-Strategie bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400],
+      "notes": "Bestimmt personalisierte Recovery-Strategie"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.skipRecovery }}",
+            "operation": "notEqual",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-skip-recovery",
+      "name": "Recovery durchführen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 400],
+      "notes": "Prüft ob Recovery durchgeführt werden soll"
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.round($json.recoveryStrategy.waitTime * 60) }}",
+        "unit": "minutes"
+      },
+      "id": "wait-before-recovery",
+      "name": "Warten vor Recovery",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1780, 300],
+      "notes": "Wartet strategische Zeit vor dem Recovery-Versuch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate personalized cart recovery email content\nconst strategy = $json.recoveryStrategy;\nconst cartData = $json.cartData;\nconst customerData = $json.customerData;\nconst recoveryToken = $json.recoveryToken;\nconst recommendations = $json.productRecommendations;\n\n// Personalization based on customer tier and cart value\nconst customerName = cartData.customerName || 'Liebe Kundin, lieber Kunde';\nconst isVIP = customerData.tier === 'vip' || customerData.tier === 'premium';\nconst isNewCustomer = customerData.previousOrders === 0;\n\n// Subject line generation\nlet subject = '';\nif (strategy.urgency === 'immediate') {\n  subject = isVIP ? `${customerName}, Ihr VIP-Warenkorb wartet noch...` : \n           `Vergessen? Ihr Warenkorb (${cartData.totalValue.toFixed(2)}€) wartet!`;\n} else if (strategy.type === 'high_value') {\n  subject = `Nur noch wenige Stunden: ${cartData.totalValue.toFixed(2)}€ Warenkorb + ${strategy.incentiveValue}% Rabatt`;\n} else if (strategy.type === 'new_customer') {\n  subject = `Willkommen! Ihr Warenkorb + ${strategy.incentiveValue}% Willkommensrabatt`;\n} else if (strategy.type === 'win_back') {\n  subject = `Wir vermissen Sie! Ihr Warenkorb + ${strategy.incentiveValue}% Wiedersehensrabatt`;\n} else {\n  subject = `Ihr Warenkorb wartet noch (${cartData.totalValue.toFixed(2)}€)`;\n}\n\n// Greeting and opening\nlet greeting = '';\nif (isVIP) {\n  greeting = `Liebe${customerName.includes(' ') ? 'r' : ''} ${customerName.split(' ')[0]},\\n\\nals geschätzte${customerName.includes(' ') ? 'r' : ''} VIP-Kunde${customerName.includes(' ') ? '' : 'in'} wollten wir Sie daran erinnern...`;\n} else if (isNewCustomer) {\n  greeting = `Hallo und herzlich willkommen bei DressForPleasure!\\n\\nWir freuen uns, dass Sie sich für uns entschieden haben...`;\n} else {\n  greeting = `Hallo ${customerName.split(' ')[0]},\\n\\nIhr Warenkorb wartet noch auf Sie...`;\n}\n\n// Main message based on strategy\nlet mainMessage = '';\nif (strategy.type === 'high_value') {\n  mainMessage = `Sie haben Artikel im Wert von **${cartData.totalValue.toFixed(2)}€** ausgewählt. Das ist eine großartige Auswahl! \\n\\nAls kleines Dankeschön für Ihr Vertrauen erhalten Sie **${strategy.incentiveValue}% Rabatt** auf Ihre gesamte Bestellung.`;\n} else if (strategy.type === 'new_customer') {\n  mainMessage = `Wir möchten Ihnen den Einstieg erleichtern und schenken Ihnen **${strategy.incentiveValue}% Willkommensrabatt** auf Ihre erste Bestellung!`;\n} else if (strategy.type === 'win_back') {\n  mainMessage = `Schön, dass Sie wieder da sind! Als Wiedersehensgruß erhalten Sie **${strategy.incentiveValue}% Rabatt** auf Ihren Warenkorb.`;\n} else {\n  mainMessage = `Ihre ausgewählten Artikel warten noch in Ihrem Warenkorb. Schließen Sie Ihre Bestellung ab, bevor die beliebten Artikel vergriffen sind!`;\n}\n\n// Urgency and scarcity elements\nlet urgencyMessage = '';\nif (strategy.urgency === 'high' || strategy.urgency === 'immediate') {\n  urgencyMessage = `⏰ **Nur noch begrenzte Zeit verfügbar!** Einzelne Artikel in Ihrem Warenkorb sind sehr beliebt und könnten bald ausverkauft sein.`;\n}\n\n// Incentive details\nlet incentiveDetails = '';\nif (strategy.incentive !== 'none') {\n  const incentiveMap = {\n    'discount': `${strategy.incentiveValue}% Rabatt auf alles`,\n    'welcome_discount': `${strategy.incentiveValue}% Willkommensrabatt`,\n    'special_offer': `${strategy.incentiveValue}% Sonderrabatt`,\n    'free_shipping': 'Kostenloser Versand',\n    'bundle_discount': `${strategy.incentiveValue}% Bundle-Rabatt`\n  };\n  \n  const incentiveText = incentiveMap[strategy.incentive] || `${strategy.incentiveValue}% Rabatt`;\n  incentiveDetails = `\\n\\n🎁 **Ihr Vorteil: ${incentiveText}**\\nCode: CART${strategy.incentiveValue || 'SAVE'}`;\n}\n\n// Product list\nlet productList = '';\nif (recommendations.length > 0) {\n  productList = '\\n\\n**Ihre ausgewählten Artikel:**\\n';\n  recommendations.forEach(product => {\n    productList += `• ${product.name} - ${product.price.toFixed(2)}€\\n`;\n  });\n}\n\n// Social proof for high-value customers\nlet socialProof = '';\nif (strategy.type === 'high_value' || isVIP) {\n  socialProof = '\\n\\n⭐ \"Fantastische Qualität und super Service!\" - Bewertung eines zufriedenen Kunden\\n✅ Über 10.000 glückliche Kunden vertrauen bereits auf DressForPleasure';\n}\n\n// Security and trust signals\nconst trustSignals = '\\n\\n🔒 Sicherer Checkout | 📦 Kostenloser Versand ab 50€ | 🔄 30 Tage Rückgaberecht';\n\n// Recovery link\nconst recoveryUrl = `${process.env.DRESSFORP_FRONTEND_URL}/cart/recover?token=${recoveryToken}`;\n\n// Call-to-action\nlet ctaText = '';\nif (strategy.urgency === 'immediate') {\n  ctaText = 'Jetzt sichern';\n} else if (strategy.incentive !== 'none') {\n  ctaText = 'Rabatt einlösen';\n} else {\n  ctaText = 'Bestellung abschließen';\n}\n\nreturn {\n  emailContent: {\n    subject: subject,\n    greeting: greeting,\n    mainMessage: mainMessage,\n    urgencyMessage: urgencyMessage,\n    incentiveDetails: incentiveDetails,\n    productList: productList,\n    socialProof: socialProof,\n    trustSignals: trustSignals,\n    recoveryUrl: recoveryUrl,\n    ctaText: ctaText,\n    customerTier: customerData.tier,\n    cartValue: cartData.totalValue,\n    incentiveCode: strategy.incentive !== 'none' ? `CART${strategy.incentiveValue || 'SAVE'}` : null\n  },\n  trackingData: {\n    cartId: cartData.cartId,\n    customerId: cartData.customerId,\n    strategy: strategy.type,\n    incentiveValue: strategy.incentiveValue,\n    attempt: (customerData.recoveryAttempts || 0) + 1\n  }\n};"
+      },
+      "id": "generate-recovery-email",
+      "name": "Recovery E-Mail generieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Generiert personalisierte Cart Recovery E-Mail"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.cartData.customerEmail }}",
+        "subject": "={{ $json.emailContent.subject }}",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <style>\n        body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f5f7fa; }\n        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 5px 25px rgba(0,0,0,0.1); }\n        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; }\n        .header h1 { margin: 0; font-size: 2em; font-weight: 300; }\n        .content { padding: 40px 30px; }\n        .greeting { font-size: 16px; margin-bottom: 25px; line-height: 1.7; }\n        .main-message { font-size: 18px; margin: 25px 0; line-height: 1.6; }\n        .urgency-box { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center; }\n        .incentive-box { background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border: 1px solid #c3e6cb; border-radius: 12px; padding: 25px; margin: 30px 0; text-align: center; }\n        .incentive-code { background: #28a745; color: white; padding: 12px 20px; border-radius: 25px; font-size: 18px; font-weight: bold; display: inline-block; margin: 10px 0; letter-spacing: 1px; }\n        .product-list { background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 25px 0; }\n        .product-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e9ecef; }\n        .product-item:last-child { border-bottom: none; }\n        .product-name { font-weight: 600; }\n        .product-price { color: #667eea; font-weight: bold; }\n        .cta-container { text-align: center; margin: 40px 0; }\n        .cta-button { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 18px 40px; text-decoration: none; border-radius: 50px; display: inline-block; font-weight: 600; font-size: 18px; box-shadow: 0 5px 20px rgba(102, 126, 234, 0.3); transition: all 0.3s ease; }\n        .cta-button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }\n        .social-proof { background: #e8f4fd; border-left: 4px solid #667eea; padding: 20px; margin: 25px 0; font-style: italic; }\n        .trust-signals { display: flex; justify-content: space-around; background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 25px 0; flex-wrap: wrap; }\n        .trust-item { text-align: center; margin: 10px; }\n        .trust-icon { font-size: 24px; margin-bottom: 5px; }\n        .trust-text { font-size: 12px; color: #666; }\n        .footer { background: #f8f9fa; padding: 30px; text-align: center; color: #666; border-top: 1px solid #e9ecef; }\n        .unsubscribe { font-size: 12px; color: #999; margin-top: 20px; }\n        @media (max-width: 600px) {\n            .container { margin: 0; border-radius: 0; }\n            .header, .content { padding: 25px 20px; }\n            .main-message { font-size: 16px; }\n            .trust-signals { flex-direction: column; }\n        }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>{{ $json.emailContent.customerTier === 'vip' ? '👑 VIP' : '🛍️' }} Ihr Warenkorb wartet</h1>\n            <p>DressForPleasure - Fashion die begeistert</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"greeting\">\n                {{ $json.emailContent.greeting.replace(/\\n/g, '<br>') }}\n            </div>\n            \n            <div class=\"main-message\">\n                {{ $json.emailContent.mainMessage.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>').replace(/\\n/g, '<br>') }}\n            </div>\n            \n            {{ $json.emailContent.urgencyMessage ? '\n            <div class=\"urgency-box\">\n                ' + $json.emailContent.urgencyMessage.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>') + '\n            </div>' : '' }}\n            \n            {{ $json.emailContent.incentiveDetails ? '\n            <div class=\"incentive-box\">\n                ' + $json.emailContent.incentiveDetails.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>').replace(/\\n/g, '<br>') + '\n                ' + ($json.emailContent.incentiveCode ? '<div class=\"incentive-code\">' + $json.emailContent.incentiveCode + '</div>' : '') + '\n            </div>' : '' }}\n            \n            {{ $json.emailContent.productList ? '\n            <div class=\"product-list\">\n                <h3 style=\"margin-top: 0; color: #333;\">Ihre ausgewählten Artikel:</h3>\n                ' + $json.productRecommendations.map(product => \n                    '<div class=\"product-item\"><span class=\"product-name\">' + product.name + '</span><span class=\"product-price\">' + product.price.toFixed(2) + '€</span></div>'\n                ).join('') + '\n                <div style=\"text-align: right; margin-top: 15px; font-weight: bold; font-size: 18px; color: #667eea;\">Gesamt: ' + $json.emailContent.cartValue.toFixed(2) + '€</div>\n            </div>' : '' }}\n            \n            <div class=\"cta-container\">\n                <a href=\"{{ $json.emailContent.recoveryUrl }}\" class=\"cta-button\">{{ $json.emailContent.ctaText }}</a>\n            </div>\n            \n            {{ $json.emailContent.socialProof ? '\n            <div class=\"social-proof\">\n                ' + $json.emailContent.socialProof.replace(/\\n/g, '<br>') + '\n            </div>' : '' }}\n            \n            <div class=\"trust-signals\">\n                <div class=\"trust-item\">\n                    <div class=\"trust-icon\">🔒</div>\n                    <div class=\"trust-text\">Sicherer<br>Checkout</div>\n                </div>\n                <div class=\"trust-item\">\n                    <div class=\"trust-icon\">📦</div>\n                    <div class=\"trust-text\">Kostenloser Versand<br>ab 50€</div>\n                </div>\n                <div class=\"trust-item\">\n                    <div class=\"trust-icon\">🔄</div>\n                    <div class=\"trust-text\">30 Tage<br>Rückgaberecht</div>\n                </div>\n                <div class=\"trust-item\">\n                    <div class=\"trust-icon\">⭐</div>\n                    <div class=\"trust-text\">4.8/5 Sterne<br>Bewertung</div>\n                </div>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p><strong>DressForPleasure</strong><br>\n            Fashion & Lifestyle | Premium Qualität | Nachhaltige Mode</p>\n            \n            <div class=\"unsubscribe\">\n                <p>Sie erhalten diese E-Mail, da Sie Artikel in Ihrem Warenkorb hinterlassen haben.<br>\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/unsubscribe?email={{ $json.cartData.customerEmail }}&type=cart_recovery\" style=\"color: #999;\">Keine Cart-Recovery E-Mails mehr erhalten</a> | \n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/privacy\" style=\"color: #999;\">Datenschutz</a></p>\n            </div>\n        </div>\n    </div>\n    \n    <!-- Tracking Pixel -->\n    <img src=\"{{ $env.DRESSFORP_API_URL }}/tracking/email-open?cartId={{ $json.trackingData.cartId }}&attempt={{ $json.trackingData.attempt }}\" width=\"1\" height=\"1\" alt=\"\" style=\"display: none;\">\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-recovery-email",
+      "name": "Cart Recovery E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2220, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet personalisierte Cart Recovery E-Mail"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/cart-recovery/track",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "cartId",
+              "value": "={{ $json.trackingData.cartId }}"
+            },
+            {
+              "name": "customerId",
+              "value": "={{ $json.trackingData.customerId }}"
+            },
+            {
+              "name": "strategy",
+              "value": "={{ $json.trackingData.strategy }}"
+            },
+            {
+              "name": "incentiveValue",
+              "value": "={{ $json.trackingData.incentiveValue }}"
+            },
+            {
+              "name": "attempt",
+              "value": "={{ $json.trackingData.attempt }}"
+            },
+            {
+              "name": "sentAt",
+              "value": "={{ new Date().toISOString() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "track-recovery-attempt",
+      "name": "Recovery-Versuch tracken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 300],
+      "notes": "Trackt Cart Recovery Versuch für Analytics"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.recoveryStrategy.followUpSequence }}",
+            "operation": "equal",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-follow-up-needed",
+      "name": "Follow-up erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2660, 300],
+      "notes": "Prüft ob Follow-up-Sequenz erforderlich ist"
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours"
+      },
+      "id": "wait-for-follow-up",
+      "name": "24h warten für Follow-up",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2880, 250],
+      "notes": "Wartet 24 Stunden vor Follow-up"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/carts/{{ $json.cartData.cartId }}/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-cart-converted",
+      "name": "Cart-Konversion prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3100, 250],
+      "notes": "Prüft ob Cart bereits konvertiert wurde"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.converted }}",
+            "operation": "notEqual",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-not-converted",
+      "name": "Noch nicht konvertiert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3320, 250],
+      "notes": "Prüft ob Follow-up notwendig ist"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🛒 **Cart Recovery Alert**\\n\\nErfolgreiche Recovery-E-Mail versendet:\\n├ Kunde: {{ $json.cartData.customerName }}\\n├ Cart-Wert: **{{ $json.emailContent.cartValue.toFixed(2) }}€**\\n├ Strategie: **{{ $json.trackingData.strategy }}**\\n├ Incentive: **{{ $json.trackingData.incentiveValue }}%**\\n└ Versuch: **#{{ $json.trackingData.attempt }}**\\n\\n📧 [Cart Recovery Dashboard]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/cart-recovery)",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-recovery-notification",
+      "name": "Recovery Telegram Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2660, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Telegram-Benachrichtigung über Recovery-Versuch"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "abandoned_cart_recovery"
+            },
+            {
+              "name": "event_type",
+              "value": "recovery_email_sent"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Cart recovery email sent successfully"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ cartId: $json.trackingData.cartId, strategy: $json.trackingData.strategy, cartValue: $json.emailContent.cartValue, attempt: $json.trackingData.attempt }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-recovery-attempt",
+      "name": "Recovery loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 500],
+      "notes": "Loggt Cart Recovery für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Cart Abandoned Webhook": {
+      "main": [
+        [
+          {
+            "node": "Cart-Daten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alle 2h Cart Check": {
+      "main": [
+        [
+          {
+            "node": "Cart-Daten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cart-Daten validieren": {
+      "main": [
+        [
+          {
+            "node": "Geplanter Trigger?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Geplanter Trigger?": {
+      "main": [
+        [
+          {
+            "node": "Verlassene Carts abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Recovery-Berechtigung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verlassene Carts abrufen": {
+      "main": [
+        [
+          {
+            "node": "Carts aufteilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Carts aufteilen": {
+      "main": [
+        [
+          {
+            "node": "Recovery-Berechtigung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery-Berechtigung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Berechtigt für Recovery?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Berechtigt für Recovery?": {
+      "main": [
+        [
+          {
+            "node": "Recovery-Strategie bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery-Strategie bestimmen": {
+      "main": [
+        [
+          {
+            "node": "Recovery durchführen?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery durchführen?": {
+      "main": [
+        [
+          {
+            "node": "Warten vor Recovery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Warten vor Recovery": {
+      "main": [
+        [
+          {
+            "node": "Recovery E-Mail generieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery E-Mail generieren": {
+      "main": [
+        [
+          {
+            "node": "Cart Recovery E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cart Recovery E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Recovery-Versuch tracken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery-Versuch tracken": {
+      "main": [
+        [
+          {
+            "node": "Follow-up erforderlich?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Recovery Telegram Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "24h warten für Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "24h warten für Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Cart-Konversion prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cart-Konversion prüfen": {
+      "main": [
+        [
+          {
+            "node": "Noch nicht konvertiert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Noch nicht konvertiert?": {
+      "main": [
+        [
+          {
+            "node": "Recovery-Strategie bestimmen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recovery Telegram Notification": {
+      "main": [
+        [
+          {
+            "node": "Recovery loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "14",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "24",
+      "name": "cart-recovery"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "25",
+      "name": "conversion"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "26",
+      "name": "marketing"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "11",
+      "name": "customer-service"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "23",
+      "name": "automation"
+    }
+  ]
+}

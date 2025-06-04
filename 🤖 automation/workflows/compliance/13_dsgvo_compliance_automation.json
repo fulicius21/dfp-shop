@@ -1,0 +1,734 @@
+{
+  "name": "13 - DSGVO Compliance Automatisierung",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-dsgvo-check",
+      "name": "Täglicher DSGVO Check (2:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft täglich um 2:00 Uhr für Compliance-Prüfungen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=/webhook/dsgvo-request",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "webhook-dsgvo-request",
+      "name": "DSGVO Request Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "webhookId": "dsgvo-request",
+      "notes": "Webhook für manuelle DSGVO-Anfragen"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-retention-periods",
+              "name": "retentionConfig",
+              "value": "={{ {\n  customerData: 3 * 365, // 3 Jahre\n  orderData: 10 * 365, // 10 Jahre (Steuerrecht)\n  marketingData: 2 * 365, // 2 Jahre\n  websiteLogs: 1 * 365, // 1 Jahr\n  newsletterData: 2 * 365, // 2 Jahre\n  analyticsData: 26 * 30, // 26 Monate (GA4 Standard)\n  cookieConsent: 2 * 365, // 2 Jahre\n  contactData: 3 * 365, // 3 Jahre\n  currentDate: DateTime.now().toFormat('yyyy-MM-dd'),\n  checkDate: DateTime.now().minus({days: 1}).toFormat('yyyy-MM-dd')\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-retention-periods",
+      "name": "Aufbewahrungsfristen definieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Definiert DSGVO-konforme Aufbewahrungszeiten"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/data-retention/check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "checkDate",
+              "value": "={{ $json.retentionConfig.checkDate }}"
+            },
+            {
+              "name": "includeDetails",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "check-data-retention",
+      "name": "Datenaufbewahrung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 200],
+      "notes": "Prüft abgelaufene Daten für Löschung"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/consent/check-expiry",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "checkDate",
+              "value": "={{ $json.retentionConfig.checkDate }}"
+            },
+            {
+              "name": "renewalPeriod",
+              "value": "730"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "check-consent-expiry",
+      "name": "Einverständnis-Ablauf prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Prüft abgelaufene Cookie-/Marketing-Einverständnisse"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/deletion-requests/pending",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "check-deletion-requests",
+      "name": "Lösch-Anfragen prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 400],
+      "notes": "Ruft ausstehende Kunden-Löschanfragen ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/data-audit/daily",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "auditDate",
+              "value": "={{ $json.retentionConfig.checkDate }}"
+            },
+            {
+              "name": "includeViolations",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "audit-data-processing",
+      "name": "Datenverarbeitung auditieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 500],
+      "notes": "Führt tägliches Datenverarbeitungs-Audit durch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// DSGVO Compliance Analysis & Automation\nconst retentionData = $input.all()[1].json;\nconst consentData = $input.all()[2].json;\nconst deletionRequests = $input.all()[3].json;\nconst auditData = $input.all()[4].json;\nconst retentionConfig = $input.all()[0].json.retentionConfig;\n\n// Data Retention Analysis\nconst dataRetentionAnalysis = {\n  expiredData: {\n    customerRecords: retentionData.expiredCustomers || [],\n    orderRecords: retentionData.expiredOrders || [],\n    marketingData: retentionData.expiredMarketing || [],\n    analyticsData: retentionData.expiredAnalytics || [],\n    websiteLogs: retentionData.expiredLogs || []\n  },\n  totalExpiredRecords: (retentionData.expiredCustomers?.length || 0) + \n                      (retentionData.expiredOrders?.length || 0) + \n                      (retentionData.expiredMarketing?.length || 0) + \n                      (retentionData.expiredAnalytics?.length || 0) + \n                      (retentionData.expiredLogs?.length || 0),\n  dataVolumeToDelete: retentionData.totalDataVolumeGB || 0,\n  estimatedDeletionTime: retentionData.estimatedDeletionTimeMinutes || 0\n};\n\n// Consent Management Analysis\nconst consentAnalysis = {\n  expiredConsents: {\n    cookieConsents: consentData.expiredCookieConsents || [],\n    marketingConsents: consentData.expiredMarketingConsents || [],\n    newsletterConsents: consentData.expiredNewsletterConsents || []\n  },\n  renewalRequired: {\n    total: (consentData.expiredCookieConsents?.length || 0) + \n           (consentData.expiredMarketingConsents?.length || 0) + \n           (consentData.expiredNewsletterConsents?.length || 0),\n    critical: consentData.criticalConsentRenewals || []\n  },\n  consentRates: {\n    cookie: consentData.cookieConsentRate || 0,\n    marketing: consentData.marketingConsentRate || 0,\n    newsletter: consentData.newsletterConsentRate || 0\n  }\n};\n\n// Customer Deletion Requests\nconst deletionRequestsAnalysis = {\n  pendingRequests: deletionRequests.pending || [],\n  totalPending: deletionRequests.pending?.length || 0,\n  overdueRequests: deletionRequests.overdue || [],\n  processingTime: {\n    average: deletionRequests.averageProcessingDays || 0,\n    longest: deletionRequests.longestPendingDays || 0\n  },\n  requestTypes: {\n    fullDeletion: deletionRequests.fullDeletionRequests || 0,\n    partialDeletion: deletionRequests.partialDeletionRequests || 0,\n    dataPortability: deletionRequests.dataPortabilityRequests || 0\n  }\n};\n\n// Data Processing Audit\nconst auditResults = {\n  complianceScore: auditData.overallComplianceScore || 0,\n  violations: {\n    critical: auditData.criticalViolations || [],\n    warning: auditData.warningViolations || [],\n    info: auditData.infoViolations || []\n  },\n  dataFlows: {\n    documented: auditData.documentedDataFlows || 0,\n    undocumented: auditData.undocumentedDataFlows || 0,\n    thirdPartySharing: auditData.thirdPartyDataSharing || []\n  },\n  securityMeasures: {\n    encryption: auditData.encryptionCompliance || 0,\n    accessControl: auditData.accessControlCompliance || 0,\n    dataMinimization: auditData.dataMinimizationScore || 0\n  }\n};\n\n// Automated Actions Required\nconst automatedActions = [];\n\n// Data Deletion Actions\nif (dataRetentionAnalysis.totalExpiredRecords > 0) {\n  automatedActions.push({\n    type: 'data_deletion',\n    priority: 'high',\n    action: 'schedule_automatic_deletion',\n    details: {\n      recordsToDelete: dataRetentionAnalysis.totalExpiredRecords,\n      estimatedTime: dataRetentionAnalysis.estimatedDeletionTime,\n      dataVolume: dataRetentionAnalysis.dataVolumeToDelete\n    }\n  });\n}\n\n// Consent Renewal Actions\nif (consentAnalysis.renewalRequired.total > 0) {\n  automatedActions.push({\n    type: 'consent_renewal',\n    priority: 'medium',\n    action: 'send_consent_renewal_emails',\n    details: {\n      totalUsers: consentAnalysis.renewalRequired.total,\n      criticalRenewals: consentAnalysis.renewalRequired.critical.length\n    }\n  });\n}\n\n// Deletion Request Processing\nif (deletionRequestsAnalysis.overdueRequests.length > 0) {\n  automatedActions.push({\n    type: 'urgent_deletion_processing',\n    priority: 'critical',\n    action: 'process_overdue_deletion_requests',\n    details: {\n      overdueRequests: deletionRequestsAnalysis.overdueRequests.length,\n      longestPending: deletionRequestsAnalysis.processingTime.longest\n    }\n  });\n}\n\n// Compliance Violations\nif (auditResults.violations.critical.length > 0) {\n  automatedActions.push({\n    type: 'compliance_violation',\n    priority: 'critical',\n    action: 'immediate_violation_remediation',\n    details: {\n      criticalViolations: auditResults.violations.critical.length,\n      complianceScore: auditResults.complianceScore\n    }\n  });\n}\n\n// Compliance Recommendations\nconst complianceRecommendations = [];\n\nif (auditResults.complianceScore < 85) {\n  complianceRecommendations.push('🚨 Compliance-Score unter 85% - sofortige Maßnahmen erforderlich');\n}\n\nif (consentAnalysis.consentRates.cookie < 70) {\n  complianceRecommendations.push('🍪 Niedrige Cookie-Consent-Rate - Cookie-Banner optimieren');\n}\n\nif (deletionRequestsAnalysis.processingTime.average > 25) {\n  complianceRecommendations.push('⏱️ Lösch-Anfragen-Bearbeitung zu langsam - Prozess automatisieren');\n}\n\nif (auditResults.dataFlows.undocumented > 0) {\n  complianceRecommendations.push('📋 Undokumentierte Datenflüsse - Verfahrensverzeichnis aktualisieren');\n}\n\n// Risk Assessment\nconst riskAssessment = {\n  overall: 'low',\n  factors: []\n};\n\nif (auditResults.violations.critical.length > 0) {\n  riskAssessment.overall = 'critical';\n  riskAssessment.factors.push('Kritische Compliance-Verletzungen');\n}\n\nif (deletionRequestsAnalysis.overdueRequests.length > 5) {\n  riskAssessment.overall = riskAssessment.overall === 'critical' ? 'critical' : 'high';\n  riskAssessment.factors.push('Überfällige Lösch-Anfragen');\n}\n\nif (dataRetentionAnalysis.totalExpiredRecords > 10000) {\n  riskAssessment.overall = riskAssessment.overall === 'critical' ? 'critical' : 'medium';\n  riskAssessment.factors.push('Hohe Anzahl abgelaufener Daten');\n}\n\nreturn {\n  dsgvoCompliance: {\n    checkDate: retentionConfig.checkDate,\n    dataRetentionAnalysis,\n    consentAnalysis,\n    deletionRequestsAnalysis,\n    auditResults,\n    automatedActions,\n    complianceRecommendations,\n    riskAssessment,\n    generatedAt: new Date().toISOString()\n  }\n};"
+      },
+      "id": "analyze-dsgvo-compliance",
+      "name": "DSGVO Compliance analysieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Führt umfassende DSGVO-Compliance-Analyse durch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.dsgvoCompliance.automatedActions.length }}",
+            "operation": "larger",
+            "rightValue": 0
+          }
+        }
+      },
+      "id": "check-actions-required",
+      "name": "Automatische Aktionen erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Prüft ob automatische DSGVO-Aktionen erforderlich sind"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/automated-deletion/execute",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "deletionPlan",
+              "value": "={{ JSON.stringify($json.dsgvoCompliance.dataRetentionAnalysis.expiredData) }}"
+            },
+            {
+              "name": "executionMode",
+              "value": "safe_batch"
+            },
+            {
+              "name": "dryRun",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "execute-automated-deletion",
+      "name": "Automatische Datenlöschung",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "notes": "Führt automatische DSGVO-konforme Datenlöschung durch"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/consent-renewal/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "expiredConsents",
+              "value": "={{ JSON.stringify($json.dsgvoCompliance.consentAnalysis.expiredConsents) }}"
+            },
+            {
+              "name": "renewalType",
+              "value": "automated_email"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "send-consent-renewals",
+      "name": "Einverständnis-Erneuerung",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300],
+      "notes": "Sendet automatische Einverständnis-Erneuerungs-E-Mails"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/compliance/deletion-requests/process-batch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "requestIds",
+              "value": "={{ JSON.stringify($json.dsgvoCompliance.deletionRequestsAnalysis.pendingRequests.map(req => req.id)) }}"
+            },
+            {
+              "name": "processingMode",
+              "value": "automatic"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "process-deletion-requests",
+      "name": "Lösch-Anfragen bearbeiten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 400],
+      "notes": "Bearbeitet ausstehende Kunden-Löschanfragen automatisch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate DSGVO Compliance Report Message\nconst compliance = $json.dsgvoCompliance;\n\nlet message = `🛡️ **DSGVO COMPLIANCE REPORT** 🛡️\\n`;\nmessage += `📅 **${DateTime.fromISO(compliance.checkDate).toFormat('dd.MM.yyyy')}**\\n\\n`;\n\n// Risk Assessment\nconst riskEmoji = {\n  low: '✅',\n  medium: '⚠️',\n  high: '🚨',\n  critical: '🔴'\n};\n\nmessage += `🎯 **COMPLIANCE STATUS**\\n`;\nmessage += `├ Risk Level: ${riskEmoji[compliance.riskAssessment.overall]} **${compliance.riskAssessment.overall.toUpperCase()}**\\n`;\nmessage += `├ Compliance Score: **${compliance.auditResults.complianceScore}%**\\n`;\nmessage += `└ Violations: **${compliance.auditResults.violations.critical.length}** kritisch, **${compliance.auditResults.violations.warning.length}** Warnungen\\n\\n`;\n\n// Data Retention\nmessage += `🗂️ **DATENAUFBEWAHRUNG**\\n`;\nmessage += `├ Abgelaufene Datensätze: **${compliance.dataRetentionAnalysis.totalExpiredRecords}**\\n`;\nmessage += `├ Datenvolumen zu löschen: **${compliance.dataRetentionAnalysis.dataVolumeToDelete} GB**\\n`;\nmessage += `└ Geschätzte Löschzeit: **${compliance.dataRetentionAnalysis.estimatedDeletionTime} Min**\\n\\n`;\n\n// Consent Management\nmessage += `📋 **EINVERSTÄNDNIS-MANAGEMENT**\\n`;\nmessage += `├ Erneuerung erforderlich: **${compliance.consentAnalysis.renewalRequired.total}**\\n`;\nmessage += `├ Cookie-Consent-Rate: **${compliance.consentAnalysis.consentRates.cookie}%**\\n`;\nmessage += `├ Marketing-Consent-Rate: **${compliance.consentAnalysis.consentRates.marketing}%**\\n`;\nmessage += `└ Newsletter-Consent-Rate: **${compliance.consentAnalysis.consentRates.newsletter}%**\\n\\n`;\n\n// Deletion Requests\nif (compliance.deletionRequestsAnalysis.totalPending > 0) {\n  message += `🗑️ **LÖSCH-ANFRAGEN**\\n`;\n  message += `├ Ausstehend: **${compliance.deletionRequestsAnalysis.totalPending}**\\n`;\n  message += `├ Überfällig: **${compliance.deletionRequestsAnalysis.overdueRequests.length}**\\n`;\n  message += `└ Ø Bearbeitungszeit: **${compliance.deletionRequestsAnalysis.processingTime.average} Tage**\\n\\n`;\n}\n\n// Automated Actions\nif (compliance.automatedActions.length > 0) {\n  message += `🤖 **AUTOMATISCHE AKTIONEN**\\n`;\n  compliance.automatedActions.forEach(action => {\n    const priorityEmoji = {\n      critical: '🔴',\n      high: '🟠',\n      medium: '🟡',\n      low: '🟢'\n    };\n    message += `${priorityEmoji[action.priority]} ${action.action.replace(/_/g, ' ')}\\n`;\n  });\n  message += `\\n`;\n}\n\n// Recommendations\nif (compliance.complianceRecommendations.length > 0) {\n  message += `💡 **COMPLIANCE-EMPFEHLUNGEN**\\n`;\n  compliance.complianceRecommendations.slice(0, 3).forEach(rec => {\n    message += `• ${rec}\\n`;\n  });\n  message += `\\n`;\n}\n\n// Risk Factors\nif (compliance.riskAssessment.factors.length > 0) {\n  message += `⚠️ **RISIKOFAKTOREN**\\n`;\n  compliance.riskAssessment.factors.forEach(factor => {\n    message += `• ${factor}\\n`;\n  });\n  message += `\\n`;\n}\n\nmessage += `🛡️ [DSGVO Dashboard](${$env.DRESSFORP_FRONTEND_URL}/admin/compliance)\\n\\n`;\nmessage += `*DSGVO Compliance Automation Report*`;\n\nreturn { complianceMessage: message };"
+      },
+      "id": "generate-compliance-message",
+      "name": "Compliance Nachricht erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "Erstellt formatierte DSGVO-Compliance-Nachricht"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.dsgvoCompliance.riskAssessment.overall }}",
+            "operation": "notEqual",
+            "rightValue": "low"
+          }
+        }
+      },
+      "id": "check-alert-required",
+      "name": "Alert erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "notes": "Prüft ob Compliance-Alert erforderlich ist"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.complianceMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-compliance-alert",
+      "name": "DSGVO Compliance Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2000, 250],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Compliance-Alert per Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "🛡️ DSGVO Compliance Alert - {{ $json.dsgvoCompliance.riskAssessment.overall.toUpperCase() }} Risk Level",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 800px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #dc3545 0%, #6f42c1 100%); color: white; padding: 30px 20px; text-align: center; }\n        .content { padding: 30px; }\n        .alert-box { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 20px 0; }\n        .critical-box { background: #f8d7da; border: 1px solid #f5c6cb; }\n        .actions-list { background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 8px; padding: 15px; margin: 15px 0; }\n        .metric { display: inline-block; margin: 10px 15px; text-align: center; }\n        .metric-value { font-size: 24px; font-weight: bold; color: #dc3545; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>🛡️ DSGVO Compliance Alert</h1>\n            <p>{{ DateTime.fromISO($json.dsgvoCompliance.checkDate).toFormat('dd.MM.yyyy') }} | Risk Level: {{ $json.dsgvoCompliance.riskAssessment.overall.toUpperCase() }}</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"{{ $json.dsgvoCompliance.riskAssessment.overall === 'critical' ? 'critical-box' : 'alert-box' }}\">\n                <h2>⚠️ Compliance Status</h2>\n                <div class=\"metric\">\n                    <div class=\"metric-value\">{{ $json.dsgvoCompliance.auditResults.complianceScore }}%</div>\n                    <div>Compliance Score</div>\n                </div>\n                <div class=\"metric\">\n                    <div class=\"metric-value\">{{ $json.dsgvoCompliance.auditResults.violations.critical.length }}</div>\n                    <div>Kritische Verstöße</div>\n                </div>\n                <div class=\"metric\">\n                    <div class=\"metric-value\">{{ $json.dsgvoCompliance.deletionRequestsAnalysis.overdueRequests.length }}</div>\n                    <div>Überfällige Löschungen</div>\n                </div>\n            </div>\n            \n            {{ $json.dsgvoCompliance.automatedActions.length > 0 ? '\n            <div class=\"actions-list\">\n                <h3>🤖 Automatische Aktionen</h3>\n                ' + $json.dsgvoCompliance.automatedActions.map(action => '<p><strong>' + action.type.replace(/_/g, ' ') + '</strong>: ' + action.action.replace(/_/g, ' ') + '</p>').join('') + '\n            </div>' : '' }}\n            \n            {{ $json.dsgvoCompliance.complianceRecommendations.length > 0 ? '\n            <div class=\"alert-box\">\n                <h3>💡 Sofortige Maßnahmen erforderlich</h3>\n                ' + $json.dsgvoCompliance.complianceRecommendations.map(rec => '<p>• ' + rec + '</p>').join('') + '\n            </div>' : '' }}\n            \n            <div style=\"text-align: center; margin: 30px 0;\">\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/compliance\" style=\"background: #dc3545; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;\">🛡️ DSGVO Dashboard öffnen</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>DSGVO Compliance Automation - {{ DateTime.fromISO($json.dsgvoCompliance.generatedAt).toFormat('dd.MM.yyyy HH:mm') }}<br>\n            DressForPleasure Data Protection & Compliance System</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-compliance-email",
+      "name": "DSGVO E-Mail Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2000, 350],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierten DSGVO-Compliance E-Mail-Alert"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "dsgvo_compliance_automation"
+            },
+            {
+              "name": "event_type",
+              "value": "compliance_check_completed"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "DSGVO compliance check completed with {{ $json.dsgvoCompliance.automatedActions.length }} automated actions"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ riskLevel: $json.dsgvoCompliance.riskAssessment.overall, complianceScore: $json.dsgvoCompliance.auditResults.complianceScore, expiredRecords: $json.dsgvoCompliance.dataRetentionAnalysis.totalExpiredRecords, automatedActions: $json.dsgvoCompliance.automatedActions.length }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-compliance-check",
+      "name": "Compliance Check loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300],
+      "notes": "Loggt DSGVO-Compliance-Check für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Täglicher DSGVO Check (2:00)": {
+      "main": [
+        [
+          {
+            "node": "Aufbewahrungsfristen definieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DSGVO Request Webhook": {
+      "main": [
+        [
+          {
+            "node": "Aufbewahrungsfristen definieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aufbewahrungsfristen definieren": {
+      "main": [
+        [
+          {
+            "node": "Datenaufbewahrung prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Einverständnis-Ablauf prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Lösch-Anfragen prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Datenverarbeitung auditieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenaufbewahrung prüfen": {
+      "main": [
+        [
+          {
+            "node": "DSGVO Compliance analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einverständnis-Ablauf prüfen": {
+      "main": [
+        [
+          {
+            "node": "DSGVO Compliance analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lösch-Anfragen prüfen": {
+      "main": [
+        [
+          {
+            "node": "DSGVO Compliance analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenverarbeitung auditieren": {
+      "main": [
+        [
+          {
+            "node": "DSGVO Compliance analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DSGVO Compliance analysieren": {
+      "main": [
+        [
+          {
+            "node": "Automatische Aktionen erforderlich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automatische Aktionen erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "Automatische Datenlöschung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Einverständnis-Erneuerung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Lösch-Anfragen bearbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compliance Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automatische Datenlöschung": {
+      "main": [
+        [
+          {
+            "node": "Compliance Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Einverständnis-Erneuerung": {
+      "main": [
+        [
+          {
+            "node": "Compliance Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lösch-Anfragen bearbeiten": {
+      "main": [
+        [
+          {
+            "node": "Compliance Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compliance Nachricht erstellen": {
+      "main": [
+        [
+          {
+            "node": "Alert erforderlich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "DSGVO Compliance Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DSGVO E-Mail Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Compliance Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DSGVO Compliance Alert": {
+      "main": [
+        [
+          {
+            "node": "Compliance Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DSGVO E-Mail Alert": {
+      "main": [
+        [
+          {
+            "node": "Compliance Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "13",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "20",
+      "name": "compliance"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "21",
+      "name": "dsgvo"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "22",
+      "name": "data-protection"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "23",
+      "name": "automation"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

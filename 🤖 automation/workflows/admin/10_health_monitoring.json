@@ -1,0 +1,544 @@
+{
+  "name": "10 - System Health Monitoring",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-health-check",
+      "name": "Health Check alle 15 Minuten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft alle 15 Minuten"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-check-timestamp",
+              "name": "checkTimestamp",
+              "value": "={{ DateTime.now().toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "set-services",
+              "name": "servicesToCheck",
+              "value": "={{ [\n  { name: 'Backend API', url: $env.DRESSFORP_API_URL + '/health', type: 'api' },\n  { name: 'Frontend Website', url: $env.DRESSFORP_FRONTEND_URL, type: 'website' },\n  { name: 'Database', url: $env.DRESSFORP_API_URL + '/health/database', type: 'database' },\n  { name: 'E-Mail Service', url: $env.DRESSFORP_API_URL + '/health/email', type: 'email' }\n] }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-health-checks",
+      "name": "Health Checks vorbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Bereitet Services für Health Check vor"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comprehensive Health Check Function\nconst services = $json.servicesToCheck;\nconst results = [];\nconst errors = [];\n\n// Function to check service health\nasync function checkService(service) {\n  const startTime = Date.now();\n  \n  try {\n    const response = await fetch(service.url, {\n      method: 'GET',\n      timeout: 10000,\n      headers: {\n        'User-Agent': 'DressForPleasure-HealthMonitor/1.0'\n      }\n    });\n    \n    const responseTime = Date.now() - startTime;\n    \n    return {\n      service: service.name,\n      type: service.type,\n      url: service.url,\n      status: response.ok ? 'healthy' : 'unhealthy',\n      statusCode: response.status,\n      responseTime: responseTime,\n      timestamp: new Date().toISOString(),\n      error: null\n    };\n  } catch (error) {\n    const responseTime = Date.now() - startTime;\n    \n    return {\n      service: service.name,\n      type: service.type,\n      url: service.url,\n      status: 'down',\n      statusCode: null,\n      responseTime: responseTime,\n      timestamp: new Date().toISOString(),\n      error: error.message\n    };\n  }\n}\n\n// Check all services\nfor (const service of services) {\n  const result = await checkService(service);\n  results.push(result);\n  \n  if (result.status !== 'healthy') {\n    errors.push(result);\n  }\n}\n\n// Calculate overall health\nconst healthyServices = results.filter(r => r.status === 'healthy').length;\nconst totalServices = results.length;\nconst overallHealth = (healthyServices / totalServices) * 100;\n\n// Determine system status\nlet systemStatus = 'healthy';\nif (overallHealth < 100 && overallHealth >= 75) {\n  systemStatus = 'degraded';\n} else if (overallHealth < 75 && overallHealth >= 50) {\n  systemStatus = 'unhealthy';\n} else if (overallHealth < 50) {\n  systemStatus = 'critical';\n}\n\n// Performance analysis\nconst averageResponseTime = results.reduce((sum, r) => sum + r.responseTime, 0) / results.length;\nconst slowServices = results.filter(r => r.responseTime > 5000);\n\nreturn {\n  healthCheck: {\n    timestamp: new Date().toISOString(),\n    systemStatus: systemStatus,\n    overallHealth: overallHealth,\n    servicesChecked: totalServices,\n    healthyServices: healthyServices,\n    unhealthyServices: totalServices - healthyServices,\n    averageResponseTime: averageResponseTime,\n    results: results,\n    errors: errors,\n    slowServices: slowServices,\n    alerts: {\n      hasErrors: errors.length > 0,\n      hasSlowServices: slowServices.length > 0,\n      requiresAttention: systemStatus !== 'healthy'\n    }\n  }\n};"
+      },
+      "id": "perform-health-checks",
+      "name": "Health Checks durchführen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Führt umfassende Health Checks durch"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-errors",
+              "leftValue": "={{ $json.healthCheck.alerts.hasErrors }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            },
+            {
+              "id": "system-unhealthy",
+              "leftValue": "={{ $json.healthCheck.systemStatus }}",
+              "rightValue": "healthy",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-alert-needed",
+      "name": "Alert erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Prüft ob Alert gesendet werden muss"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Health Alert Message\nconst health = $json.healthCheck;\n\nlet message = `🚨 **SYSTEM HEALTH ALERT** 🚨\\n\\n`;\n\n// System Status\nconst statusEmoji = {\n  'healthy': '✅',\n  'degraded': '⚠️',\n  'unhealthy': '🔸',\n  'critical': '🚨'\n};\n\nmessage += `📊 **Status:** ${statusEmoji[health.systemStatus]} **${health.systemStatus.toUpperCase()}**\\n`;\nmessage += `💚 **Gesunde Services:** ${health.healthyServices}/${health.servicesChecked}\\n`;\nmessage += `📈 **Gesamtgesundheit:** ${health.overallHealth.toFixed(1)}%\\n`;\nmessage += `⏱️ **Ø Antwortzeit:** ${health.averageResponseTime.toFixed(0)}ms\\n\\n`;\n\n// Errors\nif (health.errors.length > 0) {\n  message += `❌ **FEHLERHAFTE SERVICES:**\\n`;\n  health.errors.forEach(error => {\n    message += `• **${error.service}**: ${error.error || 'HTTP ' + error.statusCode}\\n`;\n  });\n  message += `\\n`;\n}\n\n// Slow Services\nif (health.slowServices.length > 0) {\n  message += `🐌 **LANGSAME SERVICES:**\\n`;\n  health.slowServices.forEach(slow => {\n    message += `• **${slow.service}**: ${slow.responseTime}ms\\n`;\n  });\n  message += `\\n`;\n}\n\n// Service Details\nmessage += `📋 **SERVICE DETAILS:**\\n`;\nhealth.results.forEach(result => {\n  const emoji = result.status === 'healthy' ? '✅' : result.status === 'down' ? '❌' : '⚠️';\n  message += `${emoji} **${result.service}** (${result.responseTime}ms)\\n`;\n});\n\nmessage += `\\n⏰ **Check Zeit:** ${DateTime.fromISO(health.timestamp).toFormat('dd.MM.yyyy HH:mm:ss')}\\n`;\nmessage += `🔗 [System Dashboard](${$env.DRESSFORP_FRONTEND_URL}/admin/health)\\n\\n`;\nmessage += `*System Health Monitor*`;\n\nreturn { alertMessage: message };"
+      },
+      "id": "generate-alert-message",
+      "name": "Alert-Nachricht erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "notes": "Erstellt detaillierte Alert-Nachricht"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.alertMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-telegram-alert",
+      "name": "Telegram Alert senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Health Alert per Telegram"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "critical-status",
+              "leftValue": "={{ $json.healthCheck.systemStatus }}",
+              "rightValue": "critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-critical-alert",
+      "name": "Kritischer Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "notes": "Prüft ob kritischer Alert erforderlich ist"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "🚨 KRITISCHER SYSTEM ALERT - DressForPleasure ({{ $json.healthCheck.overallHealth.toFixed(0) }}%)",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 700px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 30px 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .alert-box { background: #fff5f5; border: 2px solid #e74c3c; border-radius: 8px; padding: 20px; margin: 20px 0; }\n        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }\n        .status-item { background: white; padding: 15px; border-radius: 8px; text-align: center; }\n        .status-healthy { border-left: 4px solid #27ae60; }\n        .status-warning { border-left: 4px solid #f39c12; }\n        .status-error { border-left: 4px solid #e74c3c; }\n        .services-table { width: 100%; border-collapse: collapse; margin: 15px 0; }\n        .services-table th, .services-table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }\n        .services-table th { background: #f8f9fa; }\n        .service-healthy { color: #27ae60; }\n        .service-warning { color: #f39c12; }\n        .service-error { color: #e74c3c; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }\n        .urgent { background: #ffe6e6; border: 2px solid #ff4757; padding: 15px; border-radius: 8px; margin: 20px 0; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>🚨 KRITISCHER SYSTEM ALERT</h1>\n            <p>DressForPleasure System Health Monitor</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"urgent\">\n                <h2 style=\"color: #e74c3c; margin-top: 0;\">⚠️ SOFORTIGE AUFMERKSAMKEIT ERFORDERLICH</h2>\n                <p><strong>System Status:</strong> {{ $json.healthCheck.systemStatus.toUpperCase() }}</p>\n                <p><strong>Gesamtgesundheit:</strong> {{ $json.healthCheck.overallHealth.toFixed(1) }}%</p>\n                <p><strong>Timestamp:</strong> {{ DateTime.fromISO($json.healthCheck.timestamp).toFormat('dd.MM.yyyy HH:mm:ss') }}</p>\n            </div>\n            \n            <div class=\"status-grid\">\n                <div class=\"status-item {{ $json.healthCheck.healthyServices === $json.healthCheck.servicesChecked ? 'status-healthy' : $json.healthCheck.unhealthyServices <= 2 ? 'status-warning' : 'status-error' }}\">\n                    <h3>{{ $json.healthCheck.healthyServices }}</h3>\n                    <p>Gesunde Services</p>\n                </div>\n                \n                <div class=\"status-item {{ $json.healthCheck.unhealthyServices === 0 ? 'status-healthy' : $json.healthCheck.unhealthyServices <= 2 ? 'status-warning' : 'status-error' }}\">\n                    <h3>{{ $json.healthCheck.unhealthyServices }}</h3>\n                    <p>Fehlerhafte Services</p>\n                </div>\n                \n                <div class=\"status-item {{ $json.healthCheck.averageResponseTime < 2000 ? 'status-healthy' : $json.healthCheck.averageResponseTime < 5000 ? 'status-warning' : 'status-error' }}\">\n                    <h3>{{ $json.healthCheck.averageResponseTime.toFixed(0) }}ms</h3>\n                    <p>Ø Antwortzeit</p>\n                </div>\n                \n                <div class=\"status-item {{ $json.healthCheck.overallHealth === 100 ? 'status-healthy' : $json.healthCheck.overallHealth >= 75 ? 'status-warning' : 'status-error' }}\">\n                    <h3>{{ $json.healthCheck.overallHealth.toFixed(1) }}%</h3>\n                    <p>Gesamtgesundheit</p>\n                </div>\n            </div>\n            \n            <!-- Service Details -->\n            <div style=\"background: white; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n                <h3>📋 Service Status Details</h3>\n                <table class=\"services-table\">\n                    <thead>\n                        <tr>\n                            <th>Service</th>\n                            <th>Status</th>\n                            <th>Antwortzeit</th>\n                            <th>Fehler</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        {{ $json.healthCheck.results.map(result => {\n                            const statusClass = result.status === 'healthy' ? 'service-healthy' : result.status === 'down' ? 'service-error' : 'service-warning';\n                            const statusIcon = result.status === 'healthy' ? '✅' : result.status === 'down' ? '❌' : '⚠️';\n                            return '<tr><td><strong>' + result.service + '</strong></td><td class=\"' + statusClass + '\">' + statusIcon + ' ' + result.status.toUpperCase() + '</td><td>' + result.responseTime + 'ms</td><td>' + (result.error || '-') + '</td></tr>';\n                        }).join('') }}\n                    </tbody>\n                </table>\n            </div>\n            \n            <!-- Error Details -->\n            {{ $json.healthCheck.errors.length > 0 ? '\n            <div class=\"alert-box\">\n                <h3>❌ Fehlerhafte Services</h3>\n                ' + $json.healthCheck.errors.map(error => '<p><strong>' + error.service + ':</strong> ' + (error.error || 'HTTP ' + error.statusCode) + '</p>').join('') + '\n            </div>' : '' }}\n            \n            <!-- Slow Services -->\n            {{ $json.healthCheck.slowServices.length > 0 ? '\n            <div style=\"background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 15px; margin: 20px 0;\">\n                <h3>🐌 Langsame Services (>5s)</h3>\n                ' + $json.healthCheck.slowServices.map(slow => '<p><strong>' + slow.service + ':</strong> ' + slow.responseTime + 'ms</p>').join('') + '\n            </div>' : '' }}\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;\">\n                <h3>🔧 Empfohlene Maßnahmen</h3>\n                <ul style=\"text-align: left; max-width: 400px; margin: 0 auto;\">\n                    <li>Services neu starten</li>\n                    <li>Serverressourcen prüfen</li>\n                    <li>Netzwerkverbindung testen</li>\n                    <li>Logs auf Fehler analysieren</li>\n                    <li>Backup-Systeme aktivieren falls nötig</li>\n                </ul>\n                \n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/health\" style=\"background: #e74c3c; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 20px 0;\">🚨 System Dashboard öffnen</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p><strong>AUTOMATISCHER KRITISCHER ALERT</strong><br>\n            DressForPleasure System Health Monitor<br>\n            {{ DateTime.fromISO($json.healthCheck.timestamp).toFormat('dd.MM.yyyy HH:mm:ss') }}</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-critical-email",
+      "name": "Kritische E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1780, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet kritische E-Mail bei System-Problemen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/health/report",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "healthCheck",
+              "value": "={{ JSON.stringify($json.healthCheck) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "store-health-report",
+      "name": "Health Report speichern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 500],
+      "notes": "Speichert Health Report in der Datenbank"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-summary",
+      "name": "Tägliche Health Summary",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 700],
+      "notes": "Läuft täglich um 8:00 Uhr"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/health/summary/daily",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ DateTime.now().minus({days: 1}).toFormat('yyyy-MM-dd') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-daily-health-summary",
+      "name": "Tägliche Health Summary abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 700],
+      "notes": "Ruft Health Summary für den Vortag ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Daily Health Summary\nconst summary = $json;\n\nlet message = `📊 **TÄGLICHE SYSTEM HEALTH SUMMARY** 📊\\n`;\nmessage += `📅 **${DateTime.now().minus({days: 1}).toFormat('dd.MM.yyyy')}**\\n\\n`;\n\n// Overall Statistics\nmessage += `📈 **VERFÜGBARKEIT**\\n`;\nmessage += `├ Durchschnitt: **${summary.averageUptime.toFixed(2)}%**\\n`;\nmessage += `├ Beste: ${summary.bestUptime.toFixed(2)}%\\n`;\nmessage += `└ Schlechteste: ${summary.worstUptime.toFixed(2)}%\\n\\n`;\n\nmessage += `⏱️ **PERFORMANCE**\\n`;\nmessage += `├ Ø Antwortzeit: **${summary.averageResponseTime.toFixed(0)}ms**\\n`;\nmessage += `├ Schnellste: ${summary.fastestResponse}ms\\n`;\nmessage += `└ Langsamste: ${summary.slowestResponse}ms\\n\\n`;\n\n// Incidents\nif (summary.incidents && summary.incidents.length > 0) {\n  message += `🚨 **VORFÄLLE (${summary.incidents.length})**\\n`;\n  summary.incidents.slice(0, 3).forEach(incident => {\n    message += `• ${incident.service}: ${incident.duration}min\\n`;\n  });\n  if (summary.incidents.length > 3) {\n    message += `• ... und ${summary.incidents.length - 3} weitere\\n`;\n  }\n  message += `\\n`;\n} else {\n  message += `✅ **VORFÄLLE**\\n└ Keine Ausfälle gestern\\n\\n`;\n}\n\n// Service Health\nmessage += `🔧 **SERVICE GESUNDHEIT**\\n`;\nif (summary.serviceHealth) {\n  Object.entries(summary.serviceHealth).forEach(([service, health]) => {\n    const emoji = health.uptime > 99 ? '✅' : health.uptime > 95 ? '⚠️' : '❌';\n    message += `${emoji} ${service}: ${health.uptime.toFixed(1)}%\\n`;\n  });\n} else {\n  message += `└ Keine detaillierten Service-Daten verfügbar\\n`;\n}\n\nmessage += `\\n📊 [Vollständiger Report](${$env.DRESSFORP_FRONTEND_URL}/admin/health/daily)\\n\\n`;\nmessage += `*Täglicher Health Monitor*`;\n\nreturn { summaryMessage: message };"
+      },
+      "id": "generate-daily-summary",
+      "name": "Tägliche Summary erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 700],
+      "notes": "Erstellt tägliche Health Summary"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.summaryMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-daily-summary",
+      "name": "Tägliche Summary senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 700],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet tägliche Health Summary"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "health_monitoring"
+            },
+            {
+              "name": "event_type",
+              "value": "health_check_completed"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Health monitoring check completed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({\n  systemStatus: $json.healthCheck?.systemStatus || 'unknown',\n  overallHealth: $json.healthCheck?.overallHealth || 0,\n  alertSent: $json.healthCheck?.alerts?.requiresAttention || false\n}) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-health-event",
+      "name": "Health-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 400],
+      "notes": "Loggt Health-Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Health Check alle 15 Minuten": {
+      "main": [
+        [
+          {
+            "node": "Health Checks vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Checks vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Health Checks durchführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Checks durchführen": {
+      "main": [
+        [
+          {
+            "node": "Alert erforderlich?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Health Report speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "Alert-Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert-Nachricht erstellen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert senden": {
+      "main": [
+        [
+          {
+            "node": "Kritischer Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kritischer Alert?": {
+      "main": [
+        [
+          {
+            "node": "Kritische E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kritische E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Health-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health Report speichern": {
+      "main": [
+        [
+          {
+            "node": "Health-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tägliche Health Summary": {
+      "main": [
+        [
+          {
+            "node": "Tägliche Health Summary abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tägliche Health Summary abrufen": {
+      "main": [
+        [
+          {
+            "node": "Tägliche Summary erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tägliche Summary erstellen": {
+      "main": [
+        [
+          {
+            "node": "Tägliche Summary senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "10",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "16",
+      "name": "admin"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "17",
+      "name": "monitoring"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "3",
+      "name": "critical"
+    }
+  ]
+}

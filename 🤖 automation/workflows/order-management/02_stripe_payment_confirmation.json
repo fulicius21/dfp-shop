@@ -1,0 +1,613 @@
+{
+  "name": "02 - Stripe Zahlungsbestätigung",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stripe-webhook",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "stripe-webhook",
+      "name": "Stripe Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "stripe-webhook",
+      "notes": "Empfängt Stripe Webhooks für Zahlungsevents"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stripe Webhook Signature Verification\nconst crypto = require('crypto');\n\nconst signature = $request.headers['stripe-signature'];\nconst webhookSecret = $env.STRIPE_WEBHOOK_SECRET;\nconst rawBody = $request.rawBody;\n\nif (!signature || !webhookSecret) {\n  throw new Error('Missing signature or webhook secret');\n}\n\n// Extract timestamp and signature\nconst elements = signature.split(',');\nlet timestamp;\nlet v1;\n\nelements.forEach(element => {\n  const [key, value] = element.split('=');\n  if (key === 't') timestamp = value;\n  if (key === 'v1') v1 = value;\n});\n\nif (!timestamp || !v1) {\n  throw new Error('Invalid signature format');\n}\n\n// Create expected signature\nconst payload = timestamp + '.' + rawBody;\nconst expectedSignature = crypto\n  .createHmac('sha256', webhookSecret)\n  .update(payload)\n  .digest('hex');\n\n// Verify signature\nif (expectedSignature !== v1) {\n  throw new Error('Invalid signature');\n}\n\n// Parse the JSON body\nconst event = JSON.parse(rawBody);\n\nreturn {\n  event: event,\n  verified: true,\n  eventType: event.type,\n  eventId: event.id,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "verify-stripe-signature",
+      "name": "Stripe Signatur verifizieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Verifiziert Stripe Webhook Signatur für Sicherheit"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "payment-succeeded",
+              "leftValue": "={{ $json.eventType }}",
+              "rightValue": "payment_intent.succeeded",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-payment-succeeded",
+      "name": "Payment Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 200],
+      "notes": "Prüft ob Zahlung erfolgreich war"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "payment-failed",
+              "leftValue": "={{ $json.eventType }}",
+              "rightValue": "payment_intent.payment_failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-payment-failed",
+      "name": "Payment Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400],
+      "notes": "Prüft ob Zahlung fehlgeschlagen ist"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "payment-intent-id",
+              "name": "paymentIntentId",
+              "value": "={{ $json.event.data.object.id }}",
+              "type": "string"
+            },
+            {
+              "id": "amount-received",
+              "name": "amountReceived",
+              "value": "={{ $json.event.data.object.amount_received / 100 }}",
+              "type": "number"
+            },
+            {
+              "id": "currency",
+              "name": "currency",
+              "value": "={{ $json.event.data.object.currency.toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-email",
+              "name": "customerEmail",
+              "value": "={{ $json.event.data.object.receipt_email || $json.event.data.object.metadata?.customerEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "order-number",
+              "name": "orderNumber",
+              "value": "={{ $json.event.data.object.metadata?.orderNumber }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-payment-data",
+      "name": "Zahlungsdaten extrahieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 200],
+      "notes": "Extrahiert relevante Daten aus Stripe Event"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/orders/stripe/{{ $json.paymentIntentId }}/confirm",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "paymentIntentId",
+              "value": "={{ $json.paymentIntentId }}"
+            },
+            {
+              "name": "amountReceived",
+              "value": "={{ $json.amountReceived }}"
+            },
+            {
+              "name": "currency",
+              "value": "={{ $json.currency }}"
+            },
+            {
+              "name": "stripeEventId",
+              "value": "={{ $json.eventId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "confirm-payment-backend",
+      "name": "Zahlung im Backend bestätigen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "Informiert Backend über erfolgreiche Zahlung"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "💳 **ZAHLUNG ERFOLGREICH** 💳\n\n✅ **Status:** Bezahlt\n📋 **Bestellung:** `{{ $json.orderNumber || 'Unbekannt' }}`\n💰 **Betrag:** **{{ $json.amountReceived }}{{ $json.currency }}**\n👤 **Kunde:** {{ $json.customerEmail || 'Unbekannt' }}\n🔢 **Payment Intent:** `{{ $json.paymentIntentId }}`\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n🎉 *Die Bestellung wurde automatisch bestätigt*\n\n*Stripe Webhook Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-payment-success",
+      "name": "Telegram Payment Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über erfolgreiche Zahlung"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "failure-reason",
+              "name": "failureReason",
+              "value": "={{ $json.event.data.object.last_payment_error?.message || 'Unbekannter Fehler' }}",
+              "type": "string"
+            },
+            {
+              "id": "failure-code",
+              "name": "failureCode",
+              "value": "={{ $json.event.data.object.last_payment_error?.code || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "payment-intent-id-failed",
+              "name": "paymentIntentId",
+              "value": "={{ $json.event.data.object.id }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-email-failed",
+              "name": "customerEmail",
+              "value": "={{ $json.event.data.object.receipt_email || $json.event.data.object.metadata?.customerEmail }}",
+              "type": "string"
+            },
+            {
+              "id": "order-number-failed",
+              "name": "orderNumber",
+              "value": "={{ $json.event.data.object.metadata?.orderNumber }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-failure-data",
+      "name": "Fehler-Daten extrahieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 400],
+      "notes": "Extrahiert Fehlerinformationen aus Stripe Event"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/orders/stripe/{{ $json.paymentIntentId }}/failed",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "paymentIntentId",
+              "value": "={{ $json.paymentIntentId }}"
+            },
+            {
+              "name": "failureReason",
+              "value": "={{ $json.failureReason }}"
+            },
+            {
+              "name": "failureCode",
+              "value": "={{ $json.failureCode }}"
+            },
+            {
+              "name": "stripeEventId",
+              "value": "={{ $json.eventId }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "notify-payment-failure",
+      "name": "Zahlungsfehler im Backend melden",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400],
+      "notes": "Informiert Backend über fehlgeschlagene Zahlung"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "❌ **ZAHLUNG FEHLGESCHLAGEN** ❌\n\n🚫 **Status:** Fehlgeschlagen\n📋 **Bestellung:** `{{ $json.orderNumber || 'Unbekannt' }}`\n👤 **Kunde:** {{ $json.customerEmail || 'Unbekannt' }}\n🔢 **Payment Intent:** `{{ $json.paymentIntentId }}`\n❗ **Fehlergrund:** {{ $json.failureReason }}\n🔤 **Fehlercode:** `{{ $json.failureCode }}`\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n⚠️ *Bitte Kunde kontaktieren oder Zahlungsmethode prüfen*\n\n*Stripe Webhook Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-payment-failure",
+      "name": "Telegram Payment Failure",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über fehlgeschlagene Zahlung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true, \"eventType\": $json.eventType, \"eventId\": $json.eventId, \"processed\": true }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1560, 300],
+      "notes": "Bestätigt erfolgreiche Verarbeitung an Stripe"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"error\": \"Signature verification failed\", \"timestamp\": new Date().toISOString() }",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Sendet Fehlerantwort bei ungültiger Signatur"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true, \"eventType\": $json.eventType, \"processed\": false, \"reason\": \"Event type not handled\" }"
+      },
+      "id": "webhook-ignored-response",
+      "name": "Ignored Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 600],
+      "notes": "Bestätigt Empfang für ignorierte Event-Typen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "stripe_payment_confirmation"
+            },
+            {
+              "name": "event_type",
+              "value": "={{ $json.eventType }}"
+            },
+            {
+              "name": "stripe_event_id",
+              "value": "={{ $json.eventId }}"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Stripe webhook processed successfully"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ paymentIntentId: $json.paymentIntentId, orderNumber: $json.orderNumber, customerEmail: $json.customerEmail }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-stripe-event",
+      "name": "Stripe Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200],
+      "notes": "Loggt verarbeitetes Stripe Event"
+    }
+  ],
+  "connections": {
+    "Stripe Webhook": {
+      "main": [
+        [
+          {
+            "node": "Stripe Signatur verifizieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe Signatur verifizieren": {
+      "main": [
+        [
+          {
+            "node": "Payment Succeeded?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Payment Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payment Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Zahlungsdaten extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignored Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payment Failed?": {
+      "main": [
+        [
+          {
+            "node": "Fehler-Daten extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignored Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungsdaten extrahieren": {
+      "main": [
+        [
+          {
+            "node": "Zahlung im Backend bestätigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlung im Backend bestätigen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Payment Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Payment Success": {
+      "main": [
+        [
+          {
+            "node": "Stripe Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fehler-Daten extrahieren": {
+      "main": [
+        [
+          {
+            "node": "Zahlungsfehler im Backend melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zahlungsfehler im Backend melden": {
+      "main": [
+        [
+          {
+            "node": "Telegram Payment Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Payment Failure": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stripe Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "2",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "1",
+      "name": "order-management"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "4",
+      "name": "stripe"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "5",
+      "name": "payments"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "3",
+      "name": "critical"
+    }
+  ]
+}

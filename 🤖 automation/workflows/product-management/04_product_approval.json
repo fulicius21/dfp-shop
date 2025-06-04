@@ -1,0 +1,713 @@
+{
+  "name": "04 - Produktfreigabe & Website-Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "product-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-product-approval",
+      "name": "Webhook - Produktfreigabe",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "product-approval-webhook",
+      "notes": "Empfängt Produktfreigabe-Events vom Admin-Panel"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "product-id-exists",
+              "leftValue": "={{ $json.productId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            },
+            {
+              "id": "action-exists",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "validate-approval-data",
+      "name": "Freigabe-Daten validieren",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert eingehende Freigabe-Daten"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/products/{{ $json.productId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "fetch-product-details",
+      "name": "Produktdetails abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Ruft vollständige Produktdetails ab"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "action-approve",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-approval-action",
+      "name": "Freigabe-Aktion?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "notes": "Prüft ob Produkt freigegeben werden soll"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "action-reject",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "reject",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-rejection-action",
+      "name": "Ablehnungs-Aktion?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400],
+      "notes": "Prüft ob Produkt abgelehnt werden soll"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/products/{{ $json.productId }}/approve",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "approvedBy",
+              "value": "={{ $json.approvedBy || 'Automation' }}"
+            },
+            {
+              "name": "approvalNotes",
+              "value": "={{ $json.approvalNotes || 'Automatisch freigegeben' }}"
+            },
+            {
+              "name": "publishToWebsite",
+              "value": "={{ $json.publishToWebsite !== false }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "approve-product-backend",
+      "name": "Produkt im Backend freigeben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "Markiert Produkt als freigegeben im Backend"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/products/{{ $json.productId }}/reject",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "rejectedBy",
+              "value": "={{ $json.rejectedBy || 'Automation' }}"
+            },
+            {
+              "name": "rejectionReason",
+              "value": "={{ $json.rejectionReason || 'Automatisch abgelehnt' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "reject-product-backend",
+      "name": "Produkt im Backend ablehnen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400],
+      "notes": "Markiert Produkt als abgelehnt im Backend"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "format-product-data",
+              "name": "productData",
+              "value": "={{ {\n  id: $json.id,\n  name: $json.name,\n  description: $json.description,\n  price: $json.price,\n  images: $json.images,\n  category: $json.category,\n  collection: $json.collection,\n  sizes: $json.sizes,\n  colors: $json.colors,\n  isActive: true,\n  publishedAt: new Date().toISOString()\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-website-data",
+      "name": "Website-Daten formatieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 200],
+      "notes": "Formatiert Produktdaten für Website-Sync"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_FRONTEND_URL }}/api/products/sync",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_SYNC_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "product",
+              "value": "={{ JSON.stringify($json.productData) }}"
+            },
+            {
+              "name": "action",
+              "value": "publish"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "sync-to-website",
+      "name": "Mit Website synchronisieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200],
+      "notes": "Synchronisiert Produkt mit der Website"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ **PRODUKT FREIGEGEBEN & VERÖFFENTLICHT** ✅\n\n🏷️ **Produkt:** {{ $json.name }}\n🆔 **ID:** `{{ $json.id }}`\n💰 **Preis:** {{ $json.price }}€\n📂 **Kategorie:** {{ $json.category?.name || 'Unbekannt' }}\n👤 **Freigegeben von:** {{ $json.approvedBy || 'Automation' }}\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n🌐 **Status:** Live auf der Website\n🔗 [Produkt ansehen]({{ $env.DRESSFORP_FRONTEND_URL }}/products/{{ $json.slug || $json.id }})\n\n*Produkt-Freigabe Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-approval-notification",
+      "name": "Telegram Freigabe-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über erfolgreiche Produktfreigabe"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "❌ **PRODUKT ABGELEHNT** ❌\n\n🏷️ **Produkt:** {{ $json.name }}\n🆔 **ID:** `{{ $json.id }}`\n👤 **Abgelehnt von:** {{ $json.rejectedBy || 'Automation' }}\n❗ **Grund:** {{ $json.rejectionReason || 'Keine Begründung angegeben' }}\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n🚫 **Status:** Nicht veröffentlicht\n📝 **Aktion erforderlich:** Produkt überarbeiten\n\n*Produkt-Freigabe Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-rejection-notification",
+      "name": "Telegram Ablehnungs-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über Produktablehnung"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/inventory/{{ $json.id }}/check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-inventory-levels",
+      "name": "Lagerbestand prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "notes": "Prüft Lagerbestand nach Freigabe"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "low-stock-check",
+              "leftValue": "={{ $json.totalStock }}",
+              "rightValue": "={{ $env.LOW_STOCK_THRESHOLD || 5 }}",
+              "operator": {
+                "type": "number",
+                "operation": "smallerEqual"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-low-stock",
+      "name": "Niedriger Lagerbestand?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Prüft ob Lagerbestand niedrig ist"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "⚠️ **NIEDRIGER LAGERBESTAND** ⚠️\n\n🏷️ **Produkt:** {{ $json.name }}\n📦 **Verfügbar:** {{ $json.totalStock }} Stück\n🚨 **Schwellenwert:** {{ $env.LOW_STOCK_THRESHOLD || 5 }} Stück\n\n💡 **Empfehlung:** Lager nachbestellen\n📊 [Inventar verwalten]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/inventory)\n\n*Inventory Alert Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-low-stock-alert",
+      "name": "Telegram Low-Stock Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2220, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Warnt bei niedrigem Lagerbestand"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Product approval processed\", \"productId\": $json.productId, \"action\": $json.action }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2440, 300],
+      "notes": "Bestätigt erfolgreiche Verarbeitung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Invalid approval data\" }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Sendet Fehlerantwort bei ungültigen Daten"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "product_approval"
+            },
+            {
+              "name": "product_id",
+              "value": "={{ $json.productId }}"
+            },
+            {
+              "name": "event_type",
+              "value": "product_approval_processed"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Product approval workflow completed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ productId: $json.productId, action: $json.action, approvedBy: $json.approvedBy }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-approval-event",
+      "name": "Freigabe-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2440, 400],
+      "notes": "Loggt Freigabe-Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Webhook - Produktfreigabe": {
+      "main": [
+        [
+          {
+            "node": "Freigabe-Daten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigabe-Daten validieren": {
+      "main": [
+        [
+          {
+            "node": "Produktdetails abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produktdetails abrufen": {
+      "main": [
+        [
+          {
+            "node": "Freigabe-Aktion?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ablehnungs-Aktion?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigabe-Aktion?": {
+      "main": [
+        [
+          {
+            "node": "Produkt im Backend freigeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ablehnungs-Aktion?": {
+      "main": [
+        [
+          {
+            "node": "Produkt im Backend ablehnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkt im Backend freigeben": {
+      "main": [
+        [
+          {
+            "node": "Website-Daten formatieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkt im Backend ablehnen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Ablehnungs-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Website-Daten formatieren": {
+      "main": [
+        [
+          {
+            "node": "Mit Website synchronisieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mit Website synchronisieren": {
+      "main": [
+        [
+          {
+            "node": "Telegram Freigabe-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Freigabe-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Lagerbestand prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Ablehnungs-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Freigabe-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lagerbestand prüfen": {
+      "main": [
+        [
+          {
+            "node": "Niedriger Lagerbestand?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Niedriger Lagerbestand?": {
+      "main": [
+        [
+          {
+            "node": "Telegram Low-Stock Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Freigabe-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Low-Stock Alert": {
+      "main": [
+        [
+          {
+            "node": "Freigabe-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freigabe-Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "4",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "7",
+      "name": "product-management"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "8",
+      "name": "inventory"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "3",
+      "name": "critical"
+    }
+  ]
+}

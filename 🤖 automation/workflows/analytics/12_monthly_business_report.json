@@ -1,0 +1,623 @@
+{
+  "name": "12 - Monatlicher Business Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-monthly-report",
+      "name": "Monatlicher Report (1. Tag 8:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft am ersten Tag jeden Monats um 8:00 Uhr"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-month-ranges",
+              "name": "monthRanges",
+              "value": "={{ {\n  currentMonth: DateTime.now().startOf('month').toFormat('yyyy-MM-dd'),\n  currentMonthEnd: DateTime.now().endOf('month').toFormat('yyyy-MM-dd'),\n  lastMonth: DateTime.now().minus({months: 1}).startOf('month').toFormat('yyyy-MM-dd'),\n  lastMonthEnd: DateTime.now().minus({months: 1}).endOf('month').toFormat('yyyy-MM-dd'),\n  last12MonthsStart: DateTime.now().minus({months: 12}).startOf('month').toFormat('yyyy-MM-dd'),\n  monthName: DateTime.now().minus({months: 1}).toFormat('MMMM'),\n  monthNumber: DateTime.now().minus({months: 1}).month,\n  year: DateTime.now().minus({months: 1}).year,\n  quarterStart: DateTime.now().minus({months: 1}).startOf('quarter').toFormat('yyyy-MM-dd'),\n  quarterEnd: DateTime.now().minus({months: 1}).endOf('quarter').toFormat('yyyy-MM-dd')\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-month-periods",
+      "name": "Monatszeiträume definieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Bereitet Zeiträume für Monatsanalyse vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/sales/monthly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "monthStart",
+              "value": "={{ $json.monthRanges.lastMonth }}"
+            },
+            {
+              "name": "monthEnd",
+              "value": "={{ $json.monthRanges.lastMonthEnd }}"
+            },
+            {
+              "name": "compareWith",
+              "value": "previous_month,same_month_last_year"
+            },
+            {
+              "name": "includeDetails",
+              "value": "true"
+            },
+            {
+              "name": "includeTrends",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "fetch-monthly-sales",
+      "name": "Monatliche Verkaufsdaten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 160],
+      "notes": "Ruft umfassende Verkaufsdaten des letzten Monats ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/customers/cohort",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "monthStart",
+              "value": "={{ $json.monthRanges.lastMonth }}"
+            },
+            {
+              "name": "monthEnd",
+              "value": "={{ $json.monthRanges.lastMonthEnd }}"
+            },
+            {
+              "name": "cohortPeriods",
+              "value": "12"
+            },
+            {
+              "name": "includeLifetimeValue",
+              "value": "true"
+            },
+            {
+              "name": "includeSegmentation",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-customer-cohort",
+      "name": "Customer Cohort Analyse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 260],
+      "notes": "Ruft Kunden-Cohort-Analyse und Segmentierung ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/products/lifecycle",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "period",
+              "value": "last_month"
+            },
+            {
+              "name": "includeInventoryAnalysis",
+              "value": "true"
+            },
+            {
+              "name": "includeSeasonality",
+              "value": "true"
+            },
+            {
+              "name": "includeProfitability",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 35000
+        }
+      },
+      "id": "fetch-product-lifecycle",
+      "name": "Produkt-Lifecycle Analyse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 360],
+      "notes": "Ruft Produktlebenszyklus und Profitabilitätsanalyse ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/financial/monthly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "monthStart",
+              "value": "={{ $json.monthRanges.lastMonth }}"
+            },
+            {
+              "name": "monthEnd",
+              "value": "={{ $json.monthRanges.lastMonthEnd }}"
+            },
+            {
+              "name": "includeROI",
+              "value": "true"
+            },
+            {
+              "name": "includeCosts",
+              "value": "true"
+            },
+            {
+              "name": "includeForecasting",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "fetch-financial-metrics",
+      "name": "Financial Metriken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 460],
+      "notes": "Ruft umfassende Finanzmetriken ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/competitive/market",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "period",
+              "value": "last_month"
+            },
+            {
+              "name": "includeMarketShare",
+              "value": "true"
+            },
+            {
+              "name": "includeTrends",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-market-analysis",
+      "name": "Marktanalyse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 560],
+      "notes": "Ruft Markt- und Wettbewerbsanalyse ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comprehensive Monthly Business Intelligence Analysis\nconst salesData = $input.all()[1].json;\nconst cohortData = $input.all()[2].json;\nconst productData = $input.all()[3].json;\nconst financialData = $input.all()[4].json;\nconst marketData = $input.all()[5].json;\nconst monthRanges = $input.all()[0].json.monthRanges;\n\n// Advanced growth calculation with trend analysis\nfunction calculateGrowth(current, previous, trend = 'neutral') {\n  if (!previous || previous === 0) return current > 0 ? 100 : 0;\n  const growth = ((current - previous) / previous * 100);\n  return {\n    percentage: growth.toFixed(1),\n    absolute: (current - previous).toFixed(2),\n    trend: growth > 5 ? 'strong_growth' : growth > 0 ? 'growth' : growth > -5 ? 'stable' : 'decline'\n  };\n}\n\n// Revenue Analytics with forecasting\nconst revenueAnalytics = {\n  monthly: {\n    current: salesData.revenue || 0,\n    previous: salesData.previousMonthRevenue || 0,\n    yearOverYear: salesData.sameMonthLastYear || 0,\n    growth: calculateGrowth(salesData.revenue || 0, salesData.previousMonthRevenue || 0),\n    yoyGrowth: calculateGrowth(salesData.revenue || 0, salesData.sameMonthLastYear || 0),\n    forecast: salesData.nextMonthForecast || 0,\n    target: salesData.monthlyTarget || 0,\n    achievement: salesData.monthlyTarget ? ((salesData.revenue / salesData.monthlyTarget) * 100).toFixed(1) : 0\n  },\n  quarterly: {\n    current: salesData.quarterRevenue || 0,\n    target: salesData.quarterlyTarget || 0,\n    achievement: salesData.quarterlyTarget ? ((salesData.quarterRevenue / salesData.quarterlyTarget) * 100).toFixed(1) : 0\n  },\n  annual: {\n    projection: salesData.annualProjection || 0,\n    target: salesData.annualTarget || 0\n  }\n};\n\n// Advanced Customer Analytics\nconst customerIntelligence = {\n  acquisition: {\n    newCustomers: cohortData.newCustomers || 0,\n    acquisitionCost: cohortData.acquisitionCost || 0,\n    acquisitionTrend: calculateGrowth(cohortData.newCustomers || 0, cohortData.previousNewCustomers || 0)\n  },\n  retention: {\n    cohorts: cohortData.cohorts || [],\n    averageRetention: cohortData.averageRetention || 0,\n    retentionTrend: calculateGrowth(cohortData.averageRetention || 0, cohortData.previousRetention || 0),\n    churnRate: cohortData.churnRate || 0\n  },\n  value: {\n    averageLTV: cohortData.averageLifetimeValue || 0,\n    ltvTrend: calculateGrowth(cohortData.averageLifetimeValue || 0, cohortData.previousLTV || 0),\n    averageOrderValue: cohortData.averageOrderValue || 0,\n    purchaseFrequency: cohortData.purchaseFrequency || 0\n  },\n  segmentation: {\n    highValue: cohortData.segments?.highValue || 0,\n    regular: cohortData.segments?.regular || 0,\n    atRisk: cohortData.segments?.atRisk || 0,\n    lost: cohortData.segments?.lost || 0\n  }\n};\n\n// Product Portfolio Intelligence\nconst productIntelligence = {\n  performance: {\n    topPerformers: productData.topProducts || [],\n    underperformers: productData.underperformingProducts || [],\n    newProductSuccess: productData.newProductMetrics || {},\n    categoryPerformance: productData.categoryAnalysis || []\n  },\n  inventory: {\n    turnoverRate: productData.inventoryTurnover || 0,\n    daysOfStock: productData.averageDaysOfStock || 0,\n    stockoutRate: productData.stockoutRate || 0,\n    excessInventory: productData.excessInventoryValue || 0\n  },\n  profitability: {\n    grossMargin: productData.grossMargin || 0,\n    marginalProducts: productData.lowMarginProducts || [],\n    profitDrivers: productData.topProfitProducts || []\n  },\n  lifecycle: {\n    introduction: productData.lifecycleStages?.introduction || 0,\n    growth: productData.lifecycleStages?.growth || 0,\n    maturity: productData.lifecycleStages?.maturity || 0,\n    decline: productData.lifecycleStages?.decline || 0\n  }\n};\n\n// Financial Performance\nconst financialPerformance = {\n  profitability: {\n    grossProfit: financialData.grossProfit || 0,\n    netProfit: financialData.netProfit || 0,\n    grossMargin: financialData.grossMargin || 0,\n    netMargin: financialData.netMargin || 0,\n    ebitda: financialData.ebitda || 0\n  },\n  costs: {\n    totalOperatingCosts: financialData.operatingCosts || 0,\n    marketingCosts: financialData.marketingCosts || 0,\n    fulfillmentCosts: financialData.fulfillmentCosts || 0,\n    customerServiceCosts: financialData.customerServiceCosts || 0\n  },\n  roi: {\n    marketingROI: financialData.marketingROI || 0,\n    overallROI: financialData.overallROI || 0,\n    customerAcquisitionROI: financialData.acquisitionROI || 0\n  },\n  forecasting: {\n    nextMonthRevenue: financialData.revenueProjection || 0,\n    nextQuarterRevenue: financialData.quarterProjection || 0,\n    riskFactors: financialData.riskFactors || []\n  }\n};\n\n// Market Intelligence\nconst marketIntelligence = {\n  position: {\n    marketShare: marketData.marketShare || 0,\n    competitiveRank: marketData.competitiveRank || 0,\n    brandStrength: marketData.brandStrength || 0\n  },\n  trends: {\n    industryGrowth: marketData.industryGrowth || 0,\n    seasonalFactors: marketData.seasonalFactors || [],\n    emergingTrends: marketData.emergingTrends || []\n  },\n  opportunities: {\n    marketGaps: marketData.marketGaps || [],\n    expansionOpportunities: marketData.expansionOpportunities || [],\n    partnershipPotential: marketData.partnershipOpportunities || []\n  }\n};\n\n// Executive KPIs\nconst executiveKPIs = {\n  revenue: revenueAnalytics.monthly.current,\n  revenueGrowth: revenueAnalytics.monthly.growth.percentage,\n  customerAcquisition: customerIntelligence.acquisition.newCustomers,\n  customerRetention: customerIntelligence.retention.averageRetention,\n  averageLTV: customerIntelligence.value.averageLTV,\n  grossMargin: financialPerformance.profitability.grossMargin,\n  netProfit: financialPerformance.profitability.netProfit,\n  marketPosition: marketIntelligence.position.marketShare,\n  inventoryEfficiency: productIntelligence.inventory.turnoverRate,\n  customerSatisfaction: salesData.customerSatisfactionScore || 0\n};\n\n// Strategic Insights\nconst strategicInsights = [];\n\n// Revenue Insights\nif (parseFloat(revenueAnalytics.monthly.growth.percentage) > 20) {\n  strategicInsights.push(`🚀 Exceptional revenue growth: +${revenueAnalytics.monthly.growth.percentage}% - consider scaling operations`);\n} else if (parseFloat(revenueAnalytics.monthly.growth.percentage) < -10) {\n  strategicInsights.push(`⚠️ Revenue decline detected: ${revenueAnalytics.monthly.growth.percentage}% - immediate strategy review required`);\n}\n\n// Customer Insights\nif (customerIntelligence.retention.averageRetention < 60) {\n  strategicInsights.push(`🔄 Low customer retention (${customerIntelligence.retention.averageRetention}%) - focus on retention programs`);\n}\n\nif (customerIntelligence.segmentation.atRisk > customerIntelligence.segmentation.highValue) {\n  strategicInsights.push(`⚡ High number of at-risk customers - implement retention campaigns`);\n}\n\n// Product Insights\nif (productIntelligence.inventory.turnoverRate < 6) {\n  strategicInsights.push(`📦 Low inventory turnover (${productIntelligence.inventory.turnoverRate}x) - optimize inventory management`);\n}\n\nif (productIntelligence.profitability.grossMargin < 40) {\n  strategicInsights.push(`💰 Margin pressure (${productIntelligence.profitability.grossMargin}%) - review pricing strategy`);\n}\n\n// Market Insights\nif (marketIntelligence.position.marketShare > 0 && marketIntelligence.position.marketShare < 5) {\n  strategicInsights.push(`🎯 Market share opportunity (${marketIntelligence.position.marketShare}%) - consider expansion strategy`);\n}\n\n// Strategic Recommendations\nconst strategicRecommendations = [];\n\nif (parseFloat(revenueAnalytics.monthly.achievement) < 85) {\n  strategicRecommendations.push('🎯 Revenue target at risk - implement emergency revenue generation tactics');\n}\n\nif (customerIntelligence.acquisition.acquisitionCost > customerIntelligence.value.averageLTV * 0.3) {\n  strategicRecommendations.push('💸 High acquisition cost - optimize marketing efficiency');\n}\n\nif (productIntelligence.lifecycle.decline > productIntelligence.lifecycle.introduction) {\n  strategicRecommendations.push('🆕 Product portfolio aging - accelerate new product development');\n}\n\nif (financialPerformance.profitability.netMargin < 10) {\n  strategicRecommendations.push('💎 Improve profitability - focus on high-margin products and cost optimization');\n}\n\nreturn {\n  monthlyReport: {\n    reportPeriod: {\n      month: monthRanges.monthName,\n      monthNumber: monthRanges.monthNumber,\n      year: monthRanges.year,\n      startDate: monthRanges.lastMonth,\n      endDate: monthRanges.lastMonthEnd\n    },\n    revenueAnalytics,\n    customerIntelligence,\n    productIntelligence,\n    financialPerformance,\n    marketIntelligence,\n    executiveKPIs,\n    strategicInsights,\n    strategicRecommendations,\n    generatedAt: new Date().toISOString()\n  }\n};"
+      },
+      "id": "analyze-monthly-data",
+      "name": "Monatliche Geschäftsanalyse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Führt umfassende monatliche Business Intelligence durch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Executive Monthly Report\nconst report = $json.monthlyReport;\n\nlet message = `📊 **EXECUTIVE MONTHLY REPORT** 📊\\n`;\nmessage += `🗓️ **${report.reportPeriod.month} ${report.reportPeriod.year}**\\n\\n`;\n\n// Executive Summary\nmessage += `🏆 **EXECUTIVE SUMMARY**\\n`;\nmessage += `├ Umsatz: **${report.revenueAnalytics.monthly.current.toLocaleString()}€** (${report.revenueAnalytics.monthly.growth.percentage > 0 ? '📈' : '📉'} ${report.revenueAnalytics.monthly.growth.percentage}%)\\n`;\nmessage += `├ Ziel-Erreichung: **${report.revenueAnalytics.monthly.achievement}%**\\n`;\nmessage += `├ Neue Kunden: **${report.customerIntelligence.acquisition.newCustomers}**\\n`;\nmessage += `├ Customer Retention: **${report.customerIntelligence.retention.averageRetention}%**\\n`;\nmessage += `└ Bruttogewinn: **${report.financialPerformance.profitability.grossMargin}%**\\n\\n`;\n\n// Revenue Performance\nmessage += `💰 **REVENUE ANALYTICS**\\n`;\nmessage += `├ Monatsumsatz: **${report.revenueAnalytics.monthly.current.toLocaleString()}€**\\n`;\nmessage += `├ MoM Wachstum: **${report.revenueAnalytics.monthly.growth.percentage}%**\\n`;\nmessage += `├ YoY Wachstum: **${report.revenueAnalytics.monthly.yoyGrowth.percentage}%**\\n`;\nmessage += `├ Q-Ziel: **${report.revenueAnalytics.quarterly.achievement}%**\\n`;\nmessage += `└ Prognose nächster Monat: **${report.revenueAnalytics.monthly.forecast.toLocaleString()}€**\\n\\n`;\n\n// Customer Intelligence\nmessage += `👥 **CUSTOMER INTELLIGENCE**\\n`;\nmessage += `├ Akquisition: **${report.customerIntelligence.acquisition.newCustomers}** (Kosten: ${report.customerIntelligence.acquisition.acquisitionCost.toFixed(2)}€)\\n`;\nmessage += `├ Ø LTV: **${report.customerIntelligence.value.averageLTV.toFixed(2)}€** (${report.customerIntelligence.value.ltvTrend.percentage > 0 ? '📈' : '📉'} ${report.customerIntelligence.value.ltvTrend.percentage}%)\\n`;\nmessage += `├ High-Value: **${report.customerIntelligence.segmentation.highValue}** | At-Risk: **${report.customerIntelligence.segmentation.atRisk}**\\n`;\nmessage += `└ Churn Rate: **${report.customerIntelligence.retention.churnRate}%**\\n\\n`;\n\n// Product Performance\nif (report.productIntelligence.performance.topPerformers.length > 0) {\n  message += `🏆 **TOP PRODUCTS**\\n`;\n  report.productIntelligence.performance.topPerformers.slice(0, 3).forEach((product, index) => {\n    const emoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';\n    message += `${emoji} ${product.name}: **${product.revenue.toLocaleString()}€** (${product.margin}% Marge)\\n`;\n  });\n  message += `\\n`;\n}\n\n// Financial Performance\nmessage += `💎 **FINANCIAL PERFORMANCE**\\n`;\nmessage += `├ Bruttogewinn: **${report.financialPerformance.profitability.grossProfit.toLocaleString()}€** (${report.financialPerformance.profitability.grossMargin}%)\\n`;\nmessage += `├ Nettogewinn: **${report.financialPerformance.profitability.netProfit.toLocaleString()}€** (${report.financialPerformance.profitability.netMargin}%)\\n`;\nmessage += `├ Marketing ROI: **${report.financialPerformance.roi.marketingROI}%**\\n`;\nmessage += `└ Betriebskosten: **${report.financialPerformance.costs.totalOperatingCosts.toLocaleString()}€**\\n\\n`;\n\n// Strategic Insights\nif (report.strategicInsights.length > 0) {\n  message += `💡 **STRATEGIC INSIGHTS**\\n`;\n  report.strategicInsights.slice(0, 3).forEach(insight => {\n    message += `• ${insight}\\n`;\n  });\n  message += `\\n`;\n}\n\n// Strategic Recommendations\nif (report.strategicRecommendations.length > 0) {\n  message += `🎯 **STRATEGIC ACTIONS**\\n`;\n  report.strategicRecommendations.slice(0, 3).forEach(rec => {\n    message += `• ${rec}\\n`;\n  });\n  message += `\\n`;\n}\n\nmessage += `📊 [Executive Dashboard](${$env.DRESSFORP_FRONTEND_URL}/admin/analytics/monthly)\\n\\n`;\nmessage += `*Monthly Executive Business Intelligence Report*`;\n\nreturn { monthlyMessage: message };"
+      },
+      "id": "generate-monthly-message",
+      "name": "Executive Message erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Erstellt Executive Telegram-Nachricht"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.monthlyMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-telegram-monthly",
+      "name": "Telegram Monthly Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet monatlichen Executive Report per Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "📊 Executive Monthly Report {{ $json.monthlyReport.reportPeriod.month }} {{ $json.monthlyReport.reportPeriod.year }} - {{ $json.monthlyReport.revenueAnalytics.monthly.current.toLocaleString() }}€ Revenue",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f5f7fa; }\n        .container { max-width: 1200px; margin: 0 auto; background: white; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }\n        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 50px 30px; text-align: center; }\n        .header h1 { margin: 0; font-size: 2.5em; font-weight: 300; }\n        .header p { margin: 10px 0 0 0; font-size: 1.2em; opacity: 0.9; }\n        .executive-summary { background: #667eea; color: white; padding: 40px 30px; }\n        .content { padding: 50px 40px; }\n        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 25px; margin: 40px 0; }\n        .kpi-card { background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); padding: 30px; border-radius: 15px; text-align: center; border: 1px solid #e2e8f0; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }\n        .kpi-value { font-size: 2.5em; font-weight: 700; margin: 15px 0; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }\n        .kpi-trend { font-size: 16px; font-weight: 600; margin-top: 10px; }\n        .trend-up { color: #10b981; }\n        .trend-down { color: #ef4444; }\n        .trend-stable { color: #6b7280; }\n        .section { background: white; padding: 40px; border-radius: 15px; margin: 30px 0; box-shadow: 0 3px 15px rgba(0,0,0,0.08); border-left: 5px solid #667eea; }\n        .section-title { color: #1e293b; font-size: 1.8em; font-weight: 600; margin-bottom: 25px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }\n        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 25px; }\n        .metric-item { text-align: center; padding: 20px; background: #f8fafc; border-radius: 10px; }\n        .metric-item h4 { margin: 0 0 10px 0; color: #64748b; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }\n        .metric-item .value { font-size: 1.8em; font-weight: 700; color: #1e293b; }\n        .product-table { width: 100%; border-collapse: collapse; margin: 25px 0; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 10px rgba(0,0,0,0.1); }\n        .product-table th { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; text-align: left; font-weight: 600; }\n        .product-table td { padding: 18px 20px; border-bottom: 1px solid #e2e8f0; }\n        .product-table tr:hover { background: #f8fafc; }\n        .insights-section { background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%); border: 1px solid #bfdbfe; border-radius: 12px; padding: 30px; margin: 30px 0; }\n        .recommendations-section { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 1px solid #f59e0b; border-radius: 12px; padding: 30px; margin: 30px 0; }\n        .insight-item, .recommendation-item { display: flex; align-items: flex-start; margin: 15px 0; padding: 15px; background: rgba(255,255,255,0.6); border-radius: 8px; }\n        .insight-icon, .recommendation-icon { font-size: 1.5em; margin-right: 15px; }\n        .footer { text-align: center; padding: 40px; background: #f8fafc; color: #64748b; border-top: 1px solid #e2e8f0; }\n        .cta-button { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 18px 35px; text-decoration: none; border-radius: 10px; display: inline-block; font-weight: 600; font-size: 16px; margin: 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }\n        .performance-indicator { width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; margin: 10px 0; }\n        .performance-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; }\n        .performance-excellent { background: linear-gradient(135deg, #10b981, #059669); }\n        .performance-good { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }\n        .performance-average { background: linear-gradient(135deg, #f59e0b, #d97706); }\n        .performance-poor { background: linear-gradient(135deg, #ef4444, #dc2626); }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>Executive Monthly Report</h1>\n            <p>{{ $json.monthlyReport.reportPeriod.month }} {{ $json.monthlyReport.reportPeriod.year }} | Strategic Business Intelligence</p>\n        </div>\n        \n        <div class=\"executive-summary\">\n            <h2 style=\"margin-top: 0; font-size: 2em; font-weight: 300;\">📈 Executive Summary</h2>\n            <div class=\"kpi-grid\">\n                <div style=\"text-align: center;\">\n                    <h3 style=\"margin: 0; font-size: 1.1em; opacity: 0.9;\">Monthly Revenue</h3>\n                    <div style=\"font-size: 2.2em; font-weight: 700; margin: 10px 0;\">{{ $json.monthlyReport.revenueAnalytics.monthly.current.toLocaleString() }}€</div>\n                    <div style=\"font-size: 1.1em; opacity: 0.8;\">{{ $json.monthlyReport.revenueAnalytics.monthly.growth.percentage > 0 ? '📈' : '📉' }} {{ $json.monthlyReport.revenueAnalytics.monthly.growth.percentage }}% MoM</div>\n                </div>\n                <div style=\"text-align: center;\">\n                    <h3 style=\"margin: 0; font-size: 1.1em; opacity: 0.9;\">Target Achievement</h3>\n                    <div style=\"font-size: 2.2em; font-weight: 700; margin: 10px 0;\">{{ $json.monthlyReport.revenueAnalytics.monthly.achievement }}%</div>\n                    <div class=\"performance-indicator\">\n                        <div class=\"performance-fill {{ $json.monthlyReport.revenueAnalytics.monthly.achievement >= 100 ? 'performance-excellent' : $json.monthlyReport.revenueAnalytics.monthly.achievement >= 85 ? 'performance-good' : $json.monthlyReport.revenueAnalytics.monthly.achievement >= 70 ? 'performance-average' : 'performance-poor' }}\" style=\"width: {{ Math.min($json.monthlyReport.revenueAnalytics.monthly.achievement, 100) }}%;\"></div>\n                    </div>\n                </div>\n                <div style=\"text-align: center;\">\n                    <h3 style=\"margin: 0; font-size: 1.1em; opacity: 0.9;\">Customer Growth</h3>\n                    <div style=\"font-size: 2.2em; font-weight: 700; margin: 10px 0;\">{{ $json.monthlyReport.customerIntelligence.acquisition.newCustomers }}</div>\n                    <div style=\"font-size: 1.1em; opacity: 0.8;\">New Customers</div>\n                </div>\n                <div style=\"text-align: center;\">\n                    <h3 style=\"margin: 0; font-size: 1.1em; opacity: 0.9;\">Profit Margin</h3>\n                    <div style=\"font-size: 2.2em; font-weight: 700; margin: 10px 0;\">{{ $json.monthlyReport.financialPerformance.profitability.grossMargin }}%</div>\n                    <div style=\"font-size: 1.1em; opacity: 0.8;\">Gross Margin</div>\n                </div>\n            </div>\n        </div>\n        \n        <div class=\"content\">\n            <!-- Revenue Analytics -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">💰 Revenue Analytics</h2>\n                <div class=\"metrics-grid\">\n                    <div class=\"metric-item\">\n                        <h4>Monthly Revenue</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.revenueAnalytics.monthly.current.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.revenueAnalytics.monthly.growth.percentage >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.monthlyReport.revenueAnalytics.monthly.growth.percentage >= 0 ? '📈' : '📉' }} {{ $json.monthlyReport.revenueAnalytics.monthly.growth.percentage }}% MoM\n                        </div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Year over Year</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.revenueAnalytics.monthly.yoyGrowth.percentage }}%</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.revenueAnalytics.monthly.yoyGrowth.percentage >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            vs {{ $json.monthlyReport.reportPeriod.month }} {{ $json.monthlyReport.reportPeriod.year - 1 }}\n                        </div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Quarterly Progress</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.revenueAnalytics.quarterly.achievement }}%</div>\n                        <div class=\"performance-indicator\">\n                            <div class=\"performance-fill performance-good\" style=\"width: {{ Math.min($json.monthlyReport.revenueAnalytics.quarterly.achievement, 100) }}%;\"></div>\n                        </div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Next Month Forecast</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.revenueAnalytics.monthly.forecast.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend trend-stable\">Projected Revenue</div>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Customer Intelligence -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">👥 Customer Intelligence</h2>\n                <div class=\"metrics-grid\">\n                    <div class=\"metric-item\">\n                        <h4>Customer Acquisition</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.acquisition.newCustomers }}</div>\n                        <div class=\"kpi-trend trend-up\">Cost: {{ $json.monthlyReport.customerIntelligence.acquisition.acquisitionCost.toFixed(2) }}€</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Customer Retention</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.retention.averageRetention }}%</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.customerIntelligence.retention.retentionTrend.percentage >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.monthlyReport.customerIntelligence.retention.retentionTrend.percentage >= 0 ? '📈' : '📉' }} {{ $json.monthlyReport.customerIntelligence.retention.retentionTrend.percentage }}%\n                        </div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Average LTV</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.value.averageLTV.toFixed(2) }}€</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.customerIntelligence.value.ltvTrend.percentage >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.monthlyReport.customerIntelligence.value.ltvTrend.percentage >= 0 ? '📈' : '📉' }} {{ $json.monthlyReport.customerIntelligence.value.ltvTrend.percentage }}%\n                        </div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Churn Rate</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.retention.churnRate }}%</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.customerIntelligence.retention.churnRate <= 5 ? 'trend-up' : 'trend-down' }}\">Customer Loss</div>\n                    </div>\n                </div>\n                \n                <h3 style=\"margin-top: 40px; color: #1e293b;\">Customer Segmentation</h3>\n                <div class=\"metrics-grid\">\n                    <div class=\"metric-item\">\n                        <h4>High-Value Customers</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.segmentation.highValue }}</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Regular Customers</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.segmentation.regular }}</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>At-Risk Customers</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.segmentation.atRisk }}</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Lost Customers</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.customerIntelligence.segmentation.lost }}</div>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Product Intelligence -->\n            {{ $json.monthlyReport.productIntelligence.performance.topPerformers.length > 0 ? '\n            <div class=\"section\">\n                <h2 class=\"section-title\">🏆 Product Intelligence</h2>\n                <h3>Top Performing Products</h3>\n                <table class=\"product-table\">\n                    <thead>\n                        <tr>\n                            <th>Rank</th>\n                            <th>Product</th>\n                            <th>Revenue</th>\n                            <th>Units Sold</th>\n                            <th>Margin</th>\n                            <th>Performance</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        ' + $json.monthlyReport.productIntelligence.performance.topPerformers.slice(0, 5).map((product, index) => {\n                            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];\n                            return '<tr><td style=\"text-align: center;\">' + (medals[index] || (index + 1)) + '</td><td><strong>' + product.name + '</strong></td><td>' + product.revenue.toLocaleString() + '€</td><td>' + (product.unitsSold || 0) + '</td><td>' + (product.margin || 0) + '%</td><td><span style=\"color: #10b981;\">📈 Strong</span></td></tr>';\n                        }).join('') + '\n                    </tbody>\n                </table>\n                \n                <div class=\"metrics-grid\">\n                    <div class=\"metric-item\">\n                        <h4>Inventory Turnover</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.productIntelligence.inventory.turnoverRate }}x</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.productIntelligence.inventory.turnoverRate >= 6 ? 'trend-up' : 'trend-down' }}\">Annual Rate</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Days of Stock</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.productIntelligence.inventory.daysOfStock }}</div>\n                        <div class=\"kpi-trend trend-stable\">Average Days</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Stockout Rate</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.productIntelligence.inventory.stockoutRate }}%</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.productIntelligence.inventory.stockoutRate <= 2 ? 'trend-up' : 'trend-down' }}\">Availability</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Excess Inventory</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.productIntelligence.inventory.excessInventory.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend trend-stable\">Optimization Potential</div>\n                    </div>\n                </div>\n            </div>' : '' }}\n            \n            <!-- Financial Performance -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">💎 Financial Performance</h2>\n                <div class=\"metrics-grid\">\n                    <div class=\"metric-item\">\n                        <h4>Gross Profit</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.financialPerformance.profitability.grossProfit.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend trend-up\">{{ $json.monthlyReport.financialPerformance.profitability.grossMargin }}% Margin</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Net Profit</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.financialPerformance.profitability.netProfit.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.financialPerformance.profitability.netMargin >= 10 ? 'trend-up' : 'trend-down' }}\">{{ $json.monthlyReport.financialPerformance.profitability.netMargin }}% Margin</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Marketing ROI</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.financialPerformance.roi.marketingROI }}%</div>\n                        <div class=\"kpi-trend {{ $json.monthlyReport.financialPerformance.roi.marketingROI >= 300 ? 'trend-up' : 'trend-down' }}\">Return on Investment</div>\n                    </div>\n                    <div class=\"metric-item\">\n                        <h4>Operating Costs</h4>\n                        <div class=\"value\">{{ $json.monthlyReport.financialPerformance.costs.totalOperatingCosts.toLocaleString() }}€</div>\n                        <div class=\"kpi-trend trend-stable\">Total OpEx</div>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Strategic Insights -->\n            {{ $json.monthlyReport.strategicInsights.length > 0 ? '\n            <div class=\"insights-section\">\n                <h3 style=\"margin-top: 0; color: #1e40af; font-size: 1.5em;\">💡 Strategic Insights</h3>\n                ' + $json.monthlyReport.strategicInsights.map(insight => '<div class=\"insight-item\"><span class=\"insight-icon\">🔍</span><div>' + insight + '</div></div>').join('') + '\n            </div>' : '' }}\n            \n            <!-- Strategic Recommendations -->\n            {{ $json.monthlyReport.strategicRecommendations.length > 0 ? '\n            <div class=\"recommendations-section\">\n                <h3 style=\"margin-top: 0; color: #92400e; font-size: 1.5em;\">🎯 Strategic Recommendations</h3>\n                ' + $json.monthlyReport.strategicRecommendations.map(rec => '<div class=\"recommendation-item\"><span class=\"recommendation-icon\">⚡</span><div>' + rec + '</div></div>').join('') + '\n            </div>' : '' }}\n            \n            <div style=\"text-align: center; margin: 50px 0;\">\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/analytics/monthly\" class=\"cta-button\">📊 View Complete Executive Dashboard</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p><strong>Executive Monthly Business Intelligence Report</strong><br>\n            Generated on {{ DateTime.fromISO($json.monthlyReport.generatedAt).toFormat('dd.MM.yyyy HH:mm') }}<br>\n            DressForPleasure Strategic Analytics & Business Intelligence</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-monthly-email",
+      "name": "Executive E-Mail Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet umfassenden monatlichen Executive E-Mail-Report"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/reports/monthly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "reportData",
+              "value": "={{ JSON.stringify($json.monthlyReport) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "store-monthly-report",
+      "name": "Monthly Report speichern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "notes": "Speichert monatlichen Report in der Datenbank"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "monthly_business_report"
+            },
+            {
+              "name": "event_type",
+              "value": "monthly_report_generated"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Executive monthly business report generated and distributed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ month: $json.monthlyReport.reportPeriod.month, revenue: $json.monthlyReport.revenueAnalytics.monthly.current, insightsCount: $json.monthlyReport.strategicInsights.length, recommendationsCount: $json.monthlyReport.strategicRecommendations.length }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-monthly-report",
+      "name": "Monthly Report loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300],
+      "notes": "Loggt Monthly Report für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Monatlicher Report (1. Tag 8:00)": {
+      "main": [
+        [
+          {
+            "node": "Monatszeiträume definieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monatszeiträume definieren": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Verkaufsdaten",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Customer Cohort Analyse",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Produkt-Lifecycle Analyse",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Financial Metriken",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Marktanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monatliche Verkaufsdaten": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Geschäftsanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Cohort Analyse": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Geschäftsanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkt-Lifecycle Analyse": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Geschäftsanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Financial Metriken": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Geschäftsanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marktanalyse": {
+      "main": [
+        [
+          {
+            "node": "Monatliche Geschäftsanalyse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monatliche Geschäftsanalyse": {
+      "main": [
+        [
+          {
+            "node": "Executive Message erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executive Message erstellen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Monthly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Monthly Report": {
+      "main": [
+        [
+          {
+            "node": "Executive E-Mail Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executive E-Mail Report": {
+      "main": [
+        [
+          {
+            "node": "Monthly Report speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Report speichern": {
+      "main": [
+        [
+          {
+            "node": "Monthly Report loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "12",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "13",
+      "name": "analytics"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "14",
+      "name": "reports"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "18",
+      "name": "business-intelligence"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "19",
+      "name": "executive"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

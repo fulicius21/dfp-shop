@@ -1,0 +1,388 @@
+{
+  "name": "01 - Neue Bestellung Benachrichtigung",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-order",
+        "responseMode": "responseNode",
+        "options": {
+          "noResponseBody": false
+        }
+      },
+      "id": "webhook-new-order",
+      "name": "Webhook - Neue Bestellung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "new-order-webhook",
+      "notes": "Empfängt Webhook vom DressForPleasure Backend bei neuer Bestellung"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "order-validation",
+              "leftValue": "={{ $json.orderNumber }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            },
+            {
+              "id": "email-validation", 
+              "leftValue": "={{ $json.customerEmail }}",
+              "rightValue": "@",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "validate-order-data",
+      "name": "Bestelldaten validieren",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert eingehende Bestelldaten auf Vollständigkeit"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/orders/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "fetch-order-details",
+      "name": "Bestelldetails abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Ruft vollständige Bestelldetails vom Backend ab"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "format-order-date",
+              "name": "formattedDate",
+              "value": "={{ DateTime.fromISO($json.orderDate).toFormat('dd.MM.yyyy HH:mm') }}",
+              "type": "string"
+            },
+            {
+              "id": "format-total-amount",
+              "name": "formattedAmount", 
+              "value": "={{ Number($json.totalAmount).toFixed(2) }}",
+              "type": "string"
+            },
+            {
+              "id": "customer-name",
+              "name": "customerName",
+              "value": "={{ $json.billingAddress?.firstName }} {{ $json.billingAddress?.lastName }}",
+              "type": "string"
+            },
+            {
+              "id": "items-count",
+              "name": "itemsCount",
+              "value": "={{ $json.items?.length || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "admin-url",
+              "name": "adminUrl",
+              "value": "={{ $env.DRESSFORP_FRONTEND_URL }}/admin/orders/{{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-order-data",
+      "name": "Daten formatieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 300],
+      "notes": "Formatiert Bestelldaten für Benachrichtigungen"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🛍️ **NEUE BESTELLUNG EINGEGANGEN** 🛍️\n\n📋 **Bestellnummer:** `{{ $json.orderNumber }}`\n💰 **Betrag:** **{{ $json.formattedAmount }}€**\n👤 **Kunde:** {{ $json.customerName }}\n📧 **E-Mail:** {{ $json.customerEmail }}\n🛒 **Artikel:** {{ $json.itemsCount }} Stück\n🎯 **Status:** {{ $json.status }}\n⏰ **Zeitpunkt:** {{ $json.formattedDate }}\n\n🔗 [👉 Bestellung verwalten]({{ $json.adminUrl }})\n\n*Automatische Benachrichtigung von DressForPleasure*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-admin-notification",
+      "name": "Telegram Admin Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Benachrichtigung an Admin Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "Neue Bestellung #{{ $json.orderNumber }} - {{ $json.formattedAmount }}€",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #2c3e50; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .order-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #27ae60; margin: 20px 0; }\n        .button { background: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>🛍️ Neue Bestellung eingegangen</h1>\n    </div>\n    \n    <div class=\"content\">\n        <div class=\"order-box\">\n            <h2>Bestelldetails</h2>\n            <p><strong>Bestellnummer:</strong> {{ $json.orderNumber }}</p>\n            <p><strong>Betrag:</strong> {{ $json.formattedAmount }}€</p>\n            <p><strong>Kunde:</strong> {{ $json.customerName }}</p>\n            <p><strong>E-Mail:</strong> {{ $json.customerEmail }}</p>\n            <p><strong>Artikel:</strong> {{ $json.itemsCount }} Stück</p>\n            <p><strong>Status:</strong> {{ $json.status }}</p>\n            <p><strong>Bestellzeitpunkt:</strong> {{ $json.formattedDate }}</p>\n        </div>\n        \n        <p>Eine neue Bestellung ist in Ihrem DressForPleasure Shop eingegangen.</p>\n        \n        <a href=\"{{ $json.adminUrl }}\" class=\"button\">Bestellung verwalten</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Automatische Benachrichtigung vom DressForPleasure Automatisierungssystem</p>\n    </div>\n</body>\n</html>",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": []
+          }
+        }
+      },
+      "id": "email-admin-notification",
+      "name": "E-Mail Admin Benachrichtigung",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1120, 400],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet E-Mail-Benachrichtigung an Admin"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "new_order_notification"
+            },
+            {
+              "name": "order_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "event_type", 
+              "value": "order_notification_sent"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Order notification sent successfully"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ orderNumber: $json.orderNumber, customerEmail: $json.customerEmail, totalAmount: $json.totalAmount }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-automation-event",
+      "name": "Automation Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300],
+      "notes": "Loggt das Automation-Event für Audit-Trail"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Order notification sent\", \"orderNumber\": $json.orderNumber, \"timestamp\": new Date().toISOString() }"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1560, 300],
+      "notes": "Sendet Erfolgsantwort an Backend"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Invalid order data\", \"timestamp\": new Date().toISOString() }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Sendet Fehlerantwort bei ungültigen Daten"
+    }
+  ],
+  "connections": {
+    "Webhook - Neue Bestellung": {
+      "main": [
+        [
+          {
+            "node": "Bestelldaten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestelldaten validieren": {
+      "main": [
+        [
+          {
+            "node": "Bestelldetails abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestelldetails abrufen": {
+      "main": [
+        [
+          {
+            "node": "Daten formatieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daten formatieren": {
+      "main": [
+        [
+          {
+            "node": "Telegram Admin Benachrichtigung",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "E-Mail Admin Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Admin Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Automation Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail Admin Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Automation Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automation Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "1",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "1",
+      "name": "order-management"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z", 
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "2",
+      "name": "notifications"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z", 
+      "id": "3",
+      "name": "critical"
+    }
+  ]
+}

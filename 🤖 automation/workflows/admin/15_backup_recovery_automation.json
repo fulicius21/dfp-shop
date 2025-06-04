@@ -1,0 +1,956 @@
+{
+  "name": "15 - Backup & Recovery Automatisierung",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-backup",
+      "name": "Tägliches Backup (3:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft täglich um 3:00 Uhr für automatisches Backup"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=/webhook/backup-trigger",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "webhook-backup-trigger",
+      "name": "Manual Backup Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "webhookId": "backup-trigger",
+      "notes": "Webhook für manuelles Backup"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-backup-config",
+              "name": "backupConfig",
+              "value": "={{ {\n  timestamp: DateTime.now().toFormat('yyyy-MM-dd_HH-mm-ss'),\n  dateString: DateTime.now().toFormat('yyyy-MM-dd'),\n  backupTypes: ['database', 'files', 'workflows', 'configurations'],\n  retentionDays: 30,\n  compressionLevel: 6,\n  encryptionEnabled: true,\n  storageLocations: ['local', 'cloud'],\n  verificationEnabled: true,\n  backupSize: 0,\n  backupDuration: 0\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-backup-config",
+      "name": "Backup-Konfiguration setzen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Definiert Backup-Parameter und Einstellungen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/pre-check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "timestamp",
+              "value": "={{ $json.backupConfig.timestamp }}"
+            },
+            {
+              "name": "verifySpace",
+              "value": "true"
+            },
+            {
+              "name": "verifyConnections",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "pre-backup-check",
+      "name": "Pre-Backup Systemcheck",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 200],
+      "notes": "Prüft System vor Backup-Erstellung"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.systemReady }}",
+            "operation": "equal",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-system-ready",
+      "name": "System bereit für Backup?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "notes": "Prüft ob System backup-bereit ist"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/database/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupName",
+              "value": "database_backup_{{ $json.backupConfig.timestamp }}"
+            },
+            {
+              "name": "compressionLevel",
+              "value": "={{ $json.backupConfig.compressionLevel }}"
+            },
+            {
+              "name": "includeSchema",
+              "value": "true"
+            },
+            {
+              "name": "includeData",
+              "value": "true"
+            },
+            {
+              "name": "excludeTables",
+              "value": "[\"logs_temp\", \"sessions_temp\"]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "backup-database",
+      "name": "Datenbank-Backup erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 150],
+      "notes": "Erstellt vollständiges Datenbank-Backup"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/files/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupName",
+              "value": "files_backup_{{ $json.backupConfig.timestamp }}"
+            },
+            {
+              "name": "includePaths",
+              "value": "[\"/uploads\", \"/assets\", \"/config\", \"/ssl\"]"
+            },
+            {
+              "name": "excludePatterns",
+              "value": "[\"*.tmp\", \"*.log\", \"node_modules\"]"
+            },
+            {
+              "name": "compressionLevel",
+              "value": "={{ $json.backupConfig.compressionLevel }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "backup-files",
+      "name": "Datei-Backup erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 250],
+      "notes": "Erstellt Backup aller wichtigen Dateien"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/n8n-workflows/export",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupName",
+              "value": "workflows_backup_{{ $json.backupConfig.timestamp }}"
+            },
+            {
+              "name": "includeCredentials",
+              "value": "false"
+            },
+            {
+              "name": "includeSettings",
+              "value": "true"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "backup-workflows",
+      "name": "n8n Workflow-Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 350],
+      "notes": "Exportiert alle n8n Workflows"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/configurations/export",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupName",
+              "value": "config_backup_{{ $json.backupConfig.timestamp }}"
+            },
+            {
+              "name": "includeSecrets",
+              "value": "false"
+            },
+            {
+              "name": "includeProdConfig",
+              "value": "true"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "backup-configurations",
+      "name": "Konfiguration-Backup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 450],
+      "notes": "Sichert System-Konfigurationen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze and consolidate backup results\nconst dbBackup = $input.all()[1].json;\nconst filesBackup = $input.all()[2].json;\nconst workflowsBackup = $input.all()[3].json;\nconst configBackup = $input.all()[4].json;\nconst backupConfig = $input.all()[0].json.backupConfig;\n\n// Calculate total backup statistics\nconst backupResults = {\n  database: {\n    success: dbBackup.success || false,\n    size: dbBackup.backupSize || 0,\n    duration: dbBackup.duration || 0,\n    path: dbBackup.backupPath || '',\n    tables: dbBackup.tablesBackedUp || 0,\n    records: dbBackup.recordsBackedUp || 0\n  },\n  files: {\n    success: filesBackup.success || false,\n    size: filesBackup.backupSize || 0,\n    duration: filesBackup.duration || 0,\n    path: filesBackup.backupPath || '',\n    filesCount: filesBackup.filesCount || 0,\n    directoriesCount: filesBackup.directoriesCount || 0\n  },\n  workflows: {\n    success: workflowsBackup.success || false,\n    size: workflowsBackup.backupSize || 0,\n    duration: workflowsBackup.duration || 0,\n    path: workflowsBackup.backupPath || '',\n    workflowsCount: workflowsBackup.workflowsCount || 0,\n    credentialsCount: workflowsBackup.credentialsCount || 0\n  },\n  configurations: {\n    success: configBackup.success || false,\n    size: configBackup.backupSize || 0,\n    duration: configBackup.duration || 0,\n    path: configBackup.backupPath || '',\n    configFiles: configBackup.configFiles || 0\n  }\n};\n\n// Calculate overall statistics\nconst overallStats = {\n  totalSize: Object.values(backupResults).reduce((sum, backup) => sum + backup.size, 0),\n  totalDuration: Object.values(backupResults).reduce((sum, backup) => sum + backup.duration, 0),\n  successfulBackups: Object.values(backupResults).filter(backup => backup.success).length,\n  totalBackups: Object.keys(backupResults).length,\n  successRate: 0\n};\n\noverallStats.successRate = ((overallStats.successfulBackups / overallStats.totalBackups) * 100).toFixed(1);\n\n// Determine backup status\nconst backupStatus = {\n  overall: overallStats.successfulBackups === overallStats.totalBackups ? 'success' : \n           overallStats.successfulBackups > 0 ? 'partial' : 'failed',\n  criticalFailures: [],\n  warnings: [],\n  info: []\n};\n\n// Check for critical failures\nif (!backupResults.database.success) {\n  backupStatus.criticalFailures.push('Database backup failed - critical data at risk');\n}\n\nif (!backupResults.workflows.success) {\n  backupStatus.criticalFailures.push('Workflow backup failed - automation recovery compromised');\n}\n\n// Check for warnings\nif (overallStats.totalSize > 10000000000) { // > 10GB\n  backupStatus.warnings.push(`Large backup size: ${(overallStats.totalSize / 1000000000).toFixed(2)}GB`);\n}\n\nif (overallStats.totalDuration > 3600) { // > 1 hour\n  backupStatus.warnings.push(`Long backup duration: ${Math.round(overallStats.totalDuration / 60)} minutes`);\n}\n\n// Size formatting helper\nfunction formatBytes(bytes) {\n  if (bytes === 0) return '0 Bytes';\n  const k = 1024;\n  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];\n  const i = Math.floor(Math.log(bytes) / Math.log(k));\n  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];\n}\n\n// Duration formatting helper\nfunction formatDuration(seconds) {\n  const hours = Math.floor(seconds / 3600);\n  const minutes = Math.floor((seconds % 3600) / 60);\n  const secs = Math.floor(seconds % 60);\n  \n  if (hours > 0) return `${hours}h ${minutes}m ${secs}s`;\n  if (minutes > 0) return `${minutes}m ${secs}s`;\n  return `${secs}s`;\n}\n\n// Backup verification status\nconst verificationNeeded = backupConfig.verificationEnabled && backupStatus.overall === 'success';\n\nreturn {\n  backupSummary: {\n    timestamp: backupConfig.timestamp,\n    status: backupStatus.overall,\n    backupResults: backupResults,\n    overallStats: {\n      ...overallStats,\n      totalSizeFormatted: formatBytes(overallStats.totalSize),\n      totalDurationFormatted: formatDuration(overallStats.totalDuration)\n    },\n    statusDetails: backupStatus,\n    verificationNeeded: verificationNeeded,\n    retentionDate: DateTime.now().plus({days: backupConfig.retentionDays}).toFormat('yyyy-MM-dd')\n  }\n};"
+      },
+      "id": "analyze-backup-results",
+      "name": "Backup-Ergebnisse analysieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "Analysiert und konsolidiert Backup-Ergebnisse"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.backupSummary.verificationNeeded }}",
+            "operation": "equal",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-verification-needed",
+      "name": "Verifikation erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "Prüft ob Backup-Verifikation erforderlich ist"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/verify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupTimestamp",
+              "value": "={{ $json.backupSummary.timestamp }}"
+            },
+            {
+              "name": "verifyIntegrity",
+              "value": "true"
+            },
+            {
+              "name": "verifyCompleteness",
+              "value": "true"
+            },
+            {
+              "name": "testRestore",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "verify-backup-integrity",
+      "name": "Backup-Integrität prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 250],
+      "notes": "Verifiziert Backup-Integrität und Vollständigkeit"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/cloud-sync",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "backupTimestamp",
+              "value": "={{ $json.backupSummary.timestamp }}"
+            },
+            {
+              "name": "syncToCloud",
+              "value": "true"
+            },
+            {
+              "name": "cloudProviders",
+              "value": "[\"aws_s3\", \"google_drive\"]"
+            },
+            {
+              "name": "encryption",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "id": "sync-to-cloud",
+      "name": "Cloud-Synchronisation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 350],
+      "notes": "Synchronisiert Backups mit Cloud-Storage"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/system/backup/cleanup",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "retentionDays",
+              "value": "30"
+            },
+            {
+              "name": "keepMinimum",
+              "value": "7"
+            },
+            {
+              "name": "cleanupLocal",
+              "value": "true"
+            },
+            {
+              "name": "cleanupCloud",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "cleanup-old-backups",
+      "name": "Alte Backups bereinigen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300],
+      "notes": "Bereinigt alte Backups nach Aufbewahrungszeit"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate comprehensive backup report\nconst backupSummary = $json.backupSummary;\nconst verificationResult = $input.all().length > 1 ? $input.all()[1].json : null;\nconst cloudSyncResult = $input.all().length > 2 ? $input.all()[2].json : null;\nconst cleanupResult = $input.all().length > 3 ? $input.all()[3].json : null;\n\n// Status emoji mapping\nconst statusEmoji = {\n  success: '✅',\n  partial: '⚠️',\n  failed: '❌'\n};\n\n// Generate Telegram message\nlet message = `🗄️ **BACKUP REPORT** ${statusEmoji[backupSummary.status]}\\n`;\nmessage += `📅 **${DateTime.fromISO(backupSummary.timestamp).toFormat('dd.MM.yyyy HH:mm')}**\\n\\n`;\n\n// Overall Status\nmessage += `📊 **OVERALL STATUS**\\n`;\nmessage += `├ Status: ${statusEmoji[backupSummary.status]} **${backupSummary.status.toUpperCase()}**\\n`;\nmessage += `├ Success Rate: **${backupSummary.overallStats.successRate}%** (${backupSummary.overallStats.successfulBackups}/${backupSummary.overallStats.totalBackups})\\n`;\nmessage += `├ Total Size: **${backupSummary.overallStats.totalSizeFormatted}**\\n`;\nmessage += `└ Duration: **${backupSummary.overallStats.totalDurationFormatted}**\\n\\n`;\n\n// Individual Backup Results\nmessage += `📁 **BACKUP COMPONENTS**\\n`;\nObject.entries(backupSummary.backupResults).forEach(([type, result]) => {\n  const emoji = result.success ? '✅' : '❌';\n  const sizeMB = (result.size / 1024 / 1024).toFixed(1);\n  message += `${emoji} ${type.charAt(0).toUpperCase() + type.slice(1)}: **${sizeMB}MB** (${result.duration}s)\\n`;\n});\n\n// Verification Results\nif (verificationResult) {\n  message += `\\n🔍 **VERIFICATION**\\n`;\n  message += `├ Integrity: ${verificationResult.integrityCheck ? '✅' : '❌'} **${verificationResult.integrityCheck ? 'PASSED' : 'FAILED'}**\\n`;\n  message += `├ Completeness: ${verificationResult.completenessCheck ? '✅' : '❌'} **${verificationResult.completenessCheck ? 'PASSED' : 'FAILED'}**\\n`;\n  message += `└ Verification Score: **${verificationResult.verificationScore || 0}%**\\n`;\n}\n\n// Cloud Sync Results\nif (cloudSyncResult) {\n  message += `\\n☁️ **CLOUD SYNC**\\n`;\n  message += `├ AWS S3: ${cloudSyncResult.aws_s3?.success ? '✅' : '❌'} **${cloudSyncResult.aws_s3?.success ? 'SUCCESS' : 'FAILED'}**\\n`;\n  message += `├ Google Drive: ${cloudSyncResult.google_drive?.success ? '✅' : '❌'} **${cloudSyncResult.google_drive?.success ? 'SUCCESS' : 'FAILED'}**\\n`;\n  message += `└ Sync Duration: **${cloudSyncResult.totalDuration || 0}s**\\n`;\n}\n\n// Critical Issues\nif (backupSummary.statusDetails.criticalFailures.length > 0) {\n  message += `\\n🚨 **CRITICAL ISSUES**\\n`;\n  backupSummary.statusDetails.criticalFailures.forEach(issue => {\n    message += `• ${issue}\\n`;\n  });\n}\n\n// Warnings\nif (backupSummary.statusDetails.warnings.length > 0) {\n  message += `\\n⚠️ **WARNINGS**\\n`;\n  backupSummary.statusDetails.warnings.forEach(warning => {\n    message += `• ${warning}\\n`;\n  });\n}\n\n// Cleanup Results\nif (cleanupResult) {\n  message += `\\n🧹 **CLEANUP**\\n`;\n  message += `├ Files Cleaned: **${cleanupResult.filesRemoved || 0}**\\n`;\n  message += `├ Space Freed: **${((cleanupResult.spaceFreed || 0) / 1024 / 1024 / 1024).toFixed(2)}GB**\\n`;\n  message += `└ Retention: **${backupSummary.retentionDate}**\\n`;\n}\n\nmessage += `\\n📊 [Backup Dashboard](${process.env.DRESSFORP_FRONTEND_URL}/admin/backups)\\n\\n`;\nmessage += `*Automated Backup & Recovery System*`;\n\nreturn { \n  backupMessage: message,\n  needsAlert: backupSummary.status !== 'success' || backupSummary.statusDetails.criticalFailures.length > 0\n};"
+      },
+      "id": "generate-backup-report",
+      "name": "Backup-Report generieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "notes": "Generiert umfassenden Backup-Report"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "={{ $json.needsAlert }}",
+            "operation": "equal",
+            "rightValue": true
+          }
+        }
+      },
+      "id": "check-alert-needed",
+      "name": "Alert erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 300],
+      "notes": "Prüft ob Backup-Alert erforderlich ist"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.backupMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-backup-alert",
+      "name": "Backup Alert senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2660, 250],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Backup-Alert per Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "🗄️ Critical Backup Alert - {{ $json.backupSummary.status.toUpperCase() }} Status",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 800px; margin: 0 auto; background: white; }\n        .header { background: {{ $json.backupSummary.status === 'success' ? 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' : $json.backupSummary.status === 'partial' ? 'linear-gradient(135deg, #ffc107 0%, #fd7e14 100%)' : 'linear-gradient(135deg, #dc3545 0%, #e83e8c 100%)' }}; color: white; padding: 30px 20px; text-align: center; }\n        .content { padding: 30px; }\n        .status-box { padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }\n        .success { background: #d4edda; border: 1px solid #c3e6cb; }\n        .warning { background: #fff3cd; border: 1px solid #ffeaa7; }\n        .danger { background: #f8d7da; border: 1px solid #f5c6cb; }\n        .backup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }\n        .backup-item { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }\n        .backup-success { border-left: 4px solid #28a745; }\n        .backup-failed { border-left: 4px solid #dc3545; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>🗄️ Backup & Recovery Alert</h1>\n            <p>{{ DateTime.fromISO($json.backupSummary.timestamp).toFormat('dd.MM.yyyy HH:mm') }} | Status: {{ $json.backupSummary.status.toUpperCase() }}</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"status-box {{ $json.backupSummary.status === 'success' ? 'success' : $json.backupSummary.status === 'partial' ? 'warning' : 'danger' }}\">\n                <h2>Backup Status: {{ $json.backupSummary.status.toUpperCase() }}</h2>\n                <p><strong>Success Rate:</strong> {{ $json.backupSummary.overallStats.successRate }}% ({{ $json.backupSummary.overallStats.successfulBackups }}/{{ $json.backupSummary.overallStats.totalBackups }})</p>\n                <p><strong>Total Size:</strong> {{ $json.backupSummary.overallStats.totalSizeFormatted }} | <strong>Duration:</strong> {{ $json.backupSummary.overallStats.totalDurationFormatted }}</p>\n            </div>\n            \n            <h3>Backup Components</h3>\n            <div class=\"backup-grid\">\n                {{ Object.entries($json.backupSummary.backupResults).map(([type, result]) => \n                    '<div class=\"backup-item ' + (result.success ? 'backup-success' : 'backup-failed') + '\"><h4>' + type.charAt(0).toUpperCase() + type.slice(1) + '</h4><p><strong>' + (result.success ? '✅ SUCCESS' : '❌ FAILED') + '</strong></p><p>Size: ' + (result.size / 1024 / 1024).toFixed(1) + 'MB<br>Duration: ' + result.duration + 's</p></div>'\n                ).join('') }}\n            </div>\n            \n            {{ $json.backupSummary.statusDetails.criticalFailures.length > 0 ? '\n            <div class=\"status-box danger\">\n                <h3>🚨 Critical Issues</h3>\n                ' + $json.backupSummary.statusDetails.criticalFailures.map(issue => '<p>• ' + issue + '</p>').join('') + '\n            </div>' : '' }}\n            \n            {{ $json.backupSummary.statusDetails.warnings.length > 0 ? '\n            <div class=\"status-box warning\">\n                <h3>⚠️ Warnings</h3>\n                ' + $json.backupSummary.statusDetails.warnings.map(warning => '<p>• ' + warning + '</p>').join('') + '\n            </div>' : '' }}\n            \n            <div style=\"text-align: center; margin: 30px 0;\">\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/backups\" style=\"background: #007bff; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;\">📊 Backup Dashboard öffnen</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Automated Backup & Recovery System - {{ DateTime.fromISO($json.backupSummary.timestamp).toFormat('dd.MM.yyyy HH:mm') }}<br>\n            DressForPleasure Data Protection & Business Continuity</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-backup-email",
+      "name": "Backup E-Mail Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2660, 350],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierten Backup E-Mail-Alert"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ **Backup erfolgreich abgeschlossen**\\n\\n📊 **Quick Stats:**\\n├ Alle Komponenten: **{{ $json.backupSummary.overallStats.successfulBackups }}/{{ $json.backupSummary.overallStats.totalBackups }}** erfolgreich\\n├ Gesamtgröße: **{{ $json.backupSummary.overallStats.totalSizeFormatted }}**\\n├ Dauer: **{{ $json.backupSummary.overallStats.totalDurationFormatted }}**\\n└ Retention bis: **{{ $json.backupSummary.retentionDate }}**\\n\\n📊 [Backup Dashboard]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/backups)",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-success-notification",
+      "name": "Erfolgs-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2660, 450],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Erfolgsmeldung bei erfolgreichem Backup"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "backup_recovery_automation"
+            },
+            {
+              "name": "event_type",
+              "value": "backup_completed"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.backupSummary.status }}"
+            },
+            {
+              "name": "message",
+              "value": "Automated backup completed with {{ $json.backupSummary.overallStats.successRate }}% success rate"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ timestamp: $json.backupSummary.timestamp, totalSize: $json.backupSummary.overallStats.totalSize, duration: $json.backupSummary.overallStats.totalDuration, successRate: $json.backupSummary.overallStats.successRate, criticalFailures: $json.backupSummary.statusDetails.criticalFailures.length }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-backup-completion",
+      "name": "Backup-Abschluss loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 300],
+      "notes": "Loggt Backup-Abschluss für Audit-Trail"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "❌ **Backup-System nicht bereit**\\n\\n⚠️ **Pre-Check Fehlgeschlagen:**\\n• {{ $json.errorMessage || 'Unbekannter Fehler' }}\\n\\n🔧 Manuelle Überprüfung erforderlich.\\n\\n📊 [System Dashboard]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/system)",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-system-not-ready-alert",
+      "name": "System nicht bereit Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Alert wenn System nicht backup-bereit ist"
+    }
+  ],
+  "connections": {
+    "Tägliches Backup (3:00)": {
+      "main": [
+        [
+          {
+            "node": "Backup-Konfiguration setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Backup Webhook": {
+      "main": [
+        [
+          {
+            "node": "Backup-Konfiguration setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup-Konfiguration setzen": {
+      "main": [
+        [
+          {
+            "node": "Pre-Backup Systemcheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-Backup Systemcheck": {
+      "main": [
+        [
+          {
+            "node": "System bereit für Backup?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "System bereit für Backup?": {
+      "main": [
+        [
+          {
+            "node": "Datenbank-Backup erstellen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Datei-Backup erstellen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "n8n Workflow-Backup",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Konfiguration-Backup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "System nicht bereit Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datenbank-Backup erstellen": {
+      "main": [
+        [
+          {
+            "node": "Backup-Ergebnisse analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei-Backup erstellen": {
+      "main": [
+        [
+          {
+            "node": "Backup-Ergebnisse analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "n8n Workflow-Backup": {
+      "main": [
+        [
+          {
+            "node": "Backup-Ergebnisse analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Konfiguration-Backup": {
+      "main": [
+        [
+          {
+            "node": "Backup-Ergebnisse analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup-Ergebnisse analysieren": {
+      "main": [
+        [
+          {
+            "node": "Verifikation erforderlich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifikation erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "Backup-Integrität prüfen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Cloud-Synchronisation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alte Backups bereinigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup-Integrität prüfen": {
+      "main": [
+        [
+          {
+            "node": "Alte Backups bereinigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cloud-Synchronisation": {
+      "main": [
+        [
+          {
+            "node": "Alte Backups bereinigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alte Backups bereinigen": {
+      "main": [
+        [
+          {
+            "node": "Backup-Report generieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup-Report generieren": {
+      "main": [
+        [
+          {
+            "node": "Alert erforderlich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "Backup Alert senden",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Backup E-Mail Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erfolgs-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup Alert senden": {
+      "main": [
+        [
+          {
+            "node": "Backup-Abschluss loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Backup E-Mail Alert": {
+      "main": [
+        [
+          {
+            "node": "Backup-Abschluss loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erfolgs-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Backup-Abschluss loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "15",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "27",
+      "name": "backup"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "28",
+      "name": "recovery"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "29",
+      "name": "data-protection"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "16",
+      "name": "admin"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

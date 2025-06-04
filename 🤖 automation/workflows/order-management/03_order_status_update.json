@@ -1,0 +1,593 @@
+{
+  "name": "03 - Bestellstatus Update",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "order-status-update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-order-status",
+      "name": "Webhook - Bestellstatus Update",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "order-status-update-webhook",
+      "notes": "Empfängt Bestellstatus-Updates vom Backend"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "order-id-exists",
+              "leftValue": "={{ $json.orderId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            },
+            {
+              "id": "status-exists",
+              "leftValue": "={{ $json.newStatus }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            },
+            {
+              "id": "customer-email-exists",
+              "leftValue": "={{ $json.customerEmail }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "validate-status-data",
+      "name": "Status-Daten validieren",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert eingehende Status-Update-Daten"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-confirmed",
+              "leftValue": "={{ $json.newStatus }}",
+              "rightValue": "confirmed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-confirmed-status",
+      "name": "Status: Bestätigt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 200],
+      "notes": "Prüft ob Bestellung bestätigt wurde"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-shipped",
+              "leftValue": "={{ $json.newStatus }}",
+              "rightValue": "shipped",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-shipped-status",
+      "name": "Status: Versandt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Prüft ob Bestellung versandt wurde"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-cancelled",
+              "leftValue": "={{ $json.newStatus }}",
+              "rightValue": "cancelled",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-cancelled-status",
+      "name": "Status: Storniert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400],
+      "notes": "Prüft ob Bestellung storniert wurde"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-delivered",
+              "leftValue": "={{ $json.newStatus }}",
+              "rightValue": "delivered",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-delivered-status",
+      "name": "Status: Zugestellt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 500],
+      "notes": "Prüft ob Bestellung zugestellt wurde"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Bestellbestätigung #{{ $json.orderNumber }} - DressForPleasure",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #27ae60; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .order-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #27ae60; margin: 20px 0; }\n        .button { background: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>✅ Bestellung bestätigt!</h1>\n    </div>\n    \n    <div class=\"content\">\n        <h2>Hallo {{ $json.customerName || 'Kunde' }},</h2>\n        \n        <p>Ihre Bestellung wurde erfolgreich bestätigt und wird nun bearbeitet.</p>\n        \n        <div class=\"order-box\">\n            <h3>Bestelldetails</h3>\n            <p><strong>Bestellnummer:</strong> {{ $json.orderNumber }}</p>\n            <p><strong>Status:</strong> Bestätigt ✅</p>\n            <p><strong>Bestelldatum:</strong> {{ DateTime.fromISO($json.orderDate).toFormat('dd.MM.yyyy') }}</p>\n        </div>\n        \n        <p>Wir werden Sie per E-Mail informieren, sobald Ihre Bestellung versandt wurde.</p>\n        \n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/orders/{{ $json.orderId }}\" class=\"button\">Bestellung verfolgen</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Vielen Dank für Ihr Vertrauen!<br>Ihr DressForPleasure Team</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "email-order-confirmed",
+      "name": "E-Mail: Bestellung bestätigt",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Bestätigungs-E-Mail an Kunden"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Ihre Bestellung #{{ $json.orderNumber }} wurde versandt - DressForPleasure",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #3498db; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .shipping-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #3498db; margin: 20px 0; }\n        .button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>📦 Ihre Bestellung ist unterwegs!</h1>\n    </div>\n    \n    <div class=\"content\">\n        <h2>Hallo {{ $json.customerName || 'Kunde' }},</h2>\n        \n        <p>Gute Nachrichten! Ihre Bestellung wurde versandt und ist auf dem Weg zu Ihnen.</p>\n        \n        <div class=\"shipping-box\">\n            <h3>Versanddetails</h3>\n            <p><strong>Bestellnummer:</strong> {{ $json.orderNumber }}</p>\n            <p><strong>Status:</strong> Versandt 📦</p>\n            <p><strong>Versanddatum:</strong> {{ DateTime.now().toFormat('dd.MM.yyyy') }}</p>\n            {{ $json.trackingNumber ? '<p><strong>Tracking-Nummer:</strong> ' + $json.trackingNumber + '</p>' : '' }}\n            {{ $json.carrier ? '<p><strong>Versanddienstleister:</strong> ' + $json.carrier + '</p>' : '' }}\n        </div>\n        \n        <p>Die Lieferung erfolgt in der Regel innerhalb von 2-3 Werktagen.</p>\n        \n        {{ $json.trackingUrl ? '<a href=\"' + $json.trackingUrl + '\" class=\"button\">Sendung verfolgen</a>' : '' }}\n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/orders/{{ $json.orderId }}\" class=\"button\">Bestellung ansehen</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Vielen Dank für Ihren Einkauf!<br>Ihr DressForPleasure Team</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "email-order-shipped",
+      "name": "E-Mail: Bestellung versandt",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Versand-E-Mail an Kunden"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Bestellung #{{ $json.orderNumber }} wurde storniert - DressForPleasure",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #e74c3c; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .cancel-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #e74c3c; margin: 20px 0; }\n        .button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>❌ Bestellung storniert</h1>\n    </div>\n    \n    <div class=\"content\">\n        <h2>Hallo {{ $json.customerName || 'Kunde' }},</h2>\n        \n        <p>Ihre Bestellung wurde storniert.</p>\n        \n        <div class=\"cancel-box\">\n            <h3>Stornierungsdetails</h3>\n            <p><strong>Bestellnummer:</strong> {{ $json.orderNumber }}</p>\n            <p><strong>Status:</strong> Storniert ❌</p>\n            <p><strong>Stornierungsdatum:</strong> {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}</p>\n            {{ $json.cancellationReason ? '<p><strong>Grund:</strong> ' + $json.cancellationReason + '</p>' : '' }}\n        </div>\n        \n        <p>Falls Sie die Bestellung bezahlt haben, erhalten Sie eine automatische Rückerstattung innerhalb von 5-10 Werktagen.</p>\n        \n        <p>Bei Fragen stehen wir Ihnen gerne zur Verfügung.</p>\n        \n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}\" class=\"button\">Weiter einkaufen</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Bei Fragen: <a href=\"mailto:{{ $env.SUPPORT_EMAIL }}\">{{ $env.SUPPORT_EMAIL }}</a><br>Ihr DressForPleasure Team</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "email-order-cancelled",
+      "name": "E-Mail: Bestellung storniert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 400],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Stornierung-E-Mail an Kunden"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Ihre Bestellung #{{ $json.orderNumber }} wurde zugestellt - DressForPleasure",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #27ae60; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .delivery-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #27ae60; margin: 20px 0; }\n        .button { background: #f39c12; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 5px; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>🎉 Bestellung zugestellt!</h1>\n    </div>\n    \n    <div class=\"content\">\n        <h2>Hallo {{ $json.customerName || 'Kunde' }},</h2>\n        \n        <p>Ihre Bestellung wurde erfolgreich zugestellt!</p>\n        \n        <div class=\"delivery-box\">\n            <h3>Zustellungsdetails</h3>\n            <p><strong>Bestellnummer:</strong> {{ $json.orderNumber }}</p>\n            <p><strong>Status:</strong> Zugestellt ✅</p>\n            <p><strong>Zustelldatum:</strong> {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}</p>\n        </div>\n        \n        <p>Wir hoffen, Sie sind mit Ihrer Bestellung zufrieden!</p>\n        \n        <p>Helfen Sie anderen Kunden mit Ihrer Bewertung:</p>\n        \n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/orders/{{ $json.orderId }}/review\" class=\"button\">Jetzt bewerten</a>\n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}\" class=\"button\">Weiter einkaufen</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Vielen Dank für Ihr Vertrauen!<br>Ihr DressForPleasure Team</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "email-order-delivered",
+      "name": "E-Mail: Bestellung zugestellt",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 500],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Zustellungsbestätigung an Kunden"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "📊 **BESTELLSTATUS GEÄNDERT**\n\n📋 **Bestellung:** `{{ $json.orderNumber }}`\n👤 **Kunde:** {{ $json.customerEmail }}\n🔄 **Alter Status:** {{ $json.oldStatus || 'Unbekannt' }}\n✅ **Neuer Status:** **{{ $json.newStatus }}**\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n📧 *Kunde wurde automatisch benachrichtigt*\n\n*Status-Update Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-status-notification",
+      "name": "Telegram Status-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt Admin über Status-Änderung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Status update processed\", \"orderId\": $json.orderId, \"newStatus\": $json.newStatus }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 300],
+      "notes": "Bestätigt erfolgreiche Verarbeitung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Invalid status update data\" }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Sendet Fehlerantwort bei ungültigen Daten"
+    },
+    {
+      "parameters": {
+        "triggerOn": "afterExecute",
+        "workflowId": "{{ 4 }}",
+        "executionMode": "asynchronously",
+        "waitForExecution": false,
+        "specifyData": true,
+        "sourceData": "={{ { orderId: $json.orderId, orderNumber: $json.orderNumber, customerEmail: $json.customerEmail, newStatus: $json.newStatus } }}"
+      },
+      "id": "trigger-review-request",
+      "name": "Review-Request auslösen",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [1120, 500],
+      "notes": "Löst Review-Request Workflow aus (nur bei Zustellung)"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "order_status_update"
+            },
+            {
+              "name": "order_id",
+              "value": "={{ $json.orderId }}"
+            },
+            {
+              "name": "event_type",
+              "value": "status_update_notification"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Order status update notification sent"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ orderNumber: $json.orderNumber, oldStatus: $json.oldStatus, newStatus: $json.newStatus, customerEmail: $json.customerEmail }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-status-update",
+      "name": "Status-Update loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 400],
+      "notes": "Loggt Status-Update für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Webhook - Bestellstatus Update": {
+      "main": [
+        [
+          {
+            "node": "Status-Daten validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status-Daten validieren": {
+      "main": [
+        [
+          {
+            "node": "Status: Bestätigt?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Status: Versandt?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Status: Storniert?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Status: Zugestellt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status: Bestätigt?": {
+      "main": [
+        [
+          {
+            "node": "E-Mail: Bestellung bestätigt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status: Versandt?": {
+      "main": [
+        [
+          {
+            "node": "E-Mail: Bestellung versandt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status: Storniert?": {
+      "main": [
+        [
+          {
+            "node": "E-Mail: Bestellung storniert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status: Zugestellt?": {
+      "main": [
+        [
+          {
+            "node": "E-Mail: Bestellung zugestellt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail: Bestellung bestätigt": {
+      "main": [
+        [
+          {
+            "node": "Telegram Status-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail: Bestellung versandt": {
+      "main": [
+        [
+          {
+            "node": "Telegram Status-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail: Bestellung storniert": {
+      "main": [
+        [
+          {
+            "node": "Telegram Status-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail: Bestellung zugestellt": {
+      "main": [
+        [
+          {
+            "node": "Review-Request auslösen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Status-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Status-Update loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Request auslösen": {
+      "main": [
+        [
+          {
+            "node": "Status-Update loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status-Update loggen": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "3",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "1",
+      "name": "order-management"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "2",
+      "name": "notifications"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "6",
+      "name": "customer-service"
+    }
+  ]
+}

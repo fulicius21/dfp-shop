@@ -1,0 +1,717 @@
+{
+  "name": "07 - Newsletter Management",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "newsletter-signup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-newsletter-signup",
+      "name": "Webhook - Newsletter Anmeldung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "newsletter-signup-webhook",
+      "notes": "Empfängt Newsletter-Anmeldungen von der Website"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "email-valid",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "@",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "email-domain-valid",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "\\.",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "validate-email",
+      "name": "E-Mail validieren",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Validiert E-Mail-Adresse"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/newsletter/check-subscription",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-existing-subscription",
+      "name": "Bestehende Anmeldung prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Prüft ob E-Mail bereits angemeldet ist"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "not-subscribed",
+              "leftValue": "={{ $json.isSubscribed }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-subscription-status",
+      "name": "Bereits angemeldet?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Prüft Anmeldestatus"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "generate-token",
+              "name": "confirmationToken",
+              "value": "={{ $crypto.randomBytes(32).toString('hex') }}",
+              "type": "string"
+            },
+            {
+              "id": "set-preferences",
+              "name": "preferences",
+              "value": "={{ {\n  newsletters: $json.newsletters !== false,\n  promotions: $json.promotions !== false,\n  newProducts: $json.newProducts !== false,\n  specialOffers: $json.specialOffers !== false\n} }}",
+              "type": "object"
+            },
+            {
+              "id": "set-source",
+              "name": "source",
+              "value": "={{ $json.source || 'website' }}",
+              "type": "string"
+            },
+            {
+              "id": "set-name",
+              "name": "customerName",
+              "value": "={{ $json.name || $json.firstName || null }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-subscription-data",
+      "name": "Anmeldedaten vorbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1120, 200],
+      "notes": "Bereitet Anmeldedaten vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/newsletter/subscribe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "name",
+              "value": "={{ $json.customerName }}"
+            },
+            {
+              "name": "preferences",
+              "value": "={{ JSON.stringify($json.preferences) }}"
+            },
+            {
+              "name": "source",
+              "value": "={{ $json.source }}"
+            },
+            {
+              "name": "confirmationToken",
+              "value": "={{ $json.confirmationToken }}"
+            },
+            {
+              "name": "status",
+              "value": "pending_confirmation"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-subscription",
+      "name": "Newsletter-Anmeldung erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "notes": "Erstellt Newsletter-Anmeldung in der Datenbank"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NEWSLETTER_FROM_EMAIL || $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "Bestätigen Sie Ihre Newsletter-Anmeldung - DressForPleasure",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 600px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; }\n        .logo { font-size: 28px; font-weight: bold; margin-bottom: 10px; }\n        .content { padding: 40px 30px; background: #f8f9fa; }\n        .welcome-box { background: white; padding: 30px; border-radius: 12px; border-left: 4px solid #667eea; margin: 20px 0; text-align: center; }\n        .benefits { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }\n        .benefit-item { padding: 10px 0; border-bottom: 1px solid #eee; display: flex; align-items: center; }\n        .benefit-item:last-child { border-bottom: none; }\n        .benefit-icon { background: #667eea; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 14px; }\n        .confirm-button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 40px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold; margin: 20px 0; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }\n        .confirm-button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }\n        .footer { text-align: center; padding: 30px; color: #666; font-size: 14px; background: #f1f1f1; }\n        .social-links { margin: 20px 0; }\n        .social-links a { color: #667eea; text-decoration: none; margin: 0 10px; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <div class=\"logo\">DressForPleasure</div>\n            <p>Willkommen in unserer Fashion-Community!</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"welcome-box\">\n                <h2>📧 Fast geschafft!</h2>\n                <p>Hallo{{ $json.customerName ? ' ' + $json.customerName : '' }},</p>\n                <p>vielen Dank für Ihr Interesse an unserem Newsletter! Um Ihre Anmeldung abzuschließen, klicken Sie bitte auf den Bestätigungsbutton unten.</p>\n                \n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/newsletter/confirm?token={{ $json.confirmationToken }}\" class=\"confirm-button\">✅ Newsletter-Anmeldung bestätigen</a>\n            </div>\n            \n            <div class=\"benefits\">\n                <h3>🎁 Das erwartet Sie:</h3>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">👗</div>\n                    <div>\n                        <strong>Neue Kollektionen</strong><br>\n                        Seien Sie die Erste, die unsere neuesten Fashion-Trends entdeckt\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">💰</div>\n                    <div>\n                        <strong>Exklusive Angebote</strong><br>\n                        Spezielle Rabatte und Sale-Aktionen nur für Newsletter-Abonnenten\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">🎯</div>\n                    <div>\n                        <strong>Style-Tipps</strong><br>\n                        Persönliche Fashion-Beratung und Styling-Inspiration\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">⚡</div>\n                    <div>\n                        <strong>Early Access</strong><br>\n                        Erster Zugang zu limitierten Editionen und Special Drops\n                    </div>\n                </div>\n            </div>\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;\">\n                <h3>🔒 Ihre Privatsphäre ist uns wichtig</h3>\n                <p style=\"font-size: 14px; color: #666;\">Wir respektieren Ihre Privatsphäre und werden Ihre E-Mail-Adresse niemals an Dritte weitergeben. Sie können sich jederzeit abmelden.</p>\n            </div>\n            \n            <p style=\"color: #666; font-size: 14px; text-align: center;\">Falls der Button nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:<br>\n            <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/newsletter/confirm?token={{ $json.confirmationToken }}\">{{ $env.DRESSFORP_FRONTEND_URL }}/newsletter/confirm?token={{ $json.confirmationToken }}</a></p>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Mit freundlichen Grüßen<br><strong>Ihr DressForPleasure Team</strong></p>\n            \n            <div class=\"social-links\">\n                <a href=\"#\">📘 Facebook</a>\n                <a href=\"#\">📷 Instagram</a>\n                <a href=\"#\">🐦 Twitter</a>\n            </div>\n            \n            <p style=\"font-size: 12px; color: #999;\">DressForPleasure GmbH | Fashion Street 123 | 12345 Berlin<br>\n            Diese E-Mail wurde an {{ $json.email }} gesendet.</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-confirmation-email",
+      "name": "Bestätigungs-E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Double-Opt-In Bestätigungsmail"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "📧 **NEUE NEWSLETTER-ANMELDUNG** 📧\n\n👤 **Kunde:** {{ $json.customerName || 'Unbekannt' }}\n📧 **E-Mail:** {{ $json.email }}\n🎯 **Quelle:** {{ $json.source }}\n⏰ **Zeit:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n📋 **Präferenzen:**\n{{ $json.preferences.newsletters ? '✅' : '❌' }} Newsletter\n{{ $json.preferences.promotions ? '✅' : '❌' }} Promotions\n{{ $json.preferences.newProducts ? '✅' : '❌' }} Neue Produkte\n{{ $json.preferences.specialOffers ? '✅' : '❌' }} Special Offers\n\n📊 **Status:** Bestätigung ausstehend\n\n*Newsletter Management Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-signup-notification",
+      "name": "Telegram Anmeldung-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über neue Newsletter-Anmeldung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Newsletter-Anmeldung erfolgreich. Bitte überprüfen Sie Ihre E-Mails zur Bestätigung.\", \"confirmationRequired\": true }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2000, 200],
+      "notes": "Bestätigt erfolgreiche Anmeldung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"info\", \"message\": \"Diese E-Mail-Adresse ist bereits für unseren Newsletter angemeldet.\", \"alreadySubscribed\": true }"
+      },
+      "id": "webhook-already-subscribed",
+      "name": "Already Subscribed Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 500],
+      "notes": "Antwort für bereits angemeldete E-Mails"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Ungültige E-Mail-Adresse. Bitte überprüfen Sie Ihre Eingabe.\" }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [460, 500],
+      "notes": "Fehlerantwort bei ungültiger E-Mail"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "newsletter-confirm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-newsletter-confirm",
+      "name": "Webhook - Newsletter Bestätigung",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 700],
+      "webhookId": "newsletter-confirm-webhook",
+      "notes": "Empfängt Newsletter-Bestätigungen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/newsletter/confirm",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "token",
+              "value": "={{ $json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "confirm-subscription",
+      "name": "Anmeldung bestätigen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 700],
+      "notes": "Bestätigt Newsletter-Anmeldung im Backend"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "confirmation-success",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-confirmation-success",
+      "name": "Bestätigung erfolgreich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 700],
+      "notes": "Prüft ob Bestätigung erfolgreich war"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NEWSLETTER_FROM_EMAIL || $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "🎉 Willkommen bei DressForPleasure Newsletter!",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 600px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: white; padding: 40px 20px; text-align: center; }\n        .logo { font-size: 28px; font-weight: bold; margin-bottom: 10px; }\n        .content { padding: 40px 30px; background: #f8f9fa; }\n        .welcome-box { background: white; padding: 30px; border-radius: 12px; border-left: 4px solid #27ae60; margin: 20px 0; text-align: center; }\n        .discount-box { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 30px; border-radius: 12px; margin: 20px 0; text-align: center; }\n        .discount-code { background: rgba(255,255,255,0.2); padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; letter-spacing: 3px; margin: 15px 0; }\n        .button { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold; margin: 20px 0; }\n        .footer { text-align: center; padding: 30px; color: #666; font-size: 14px; background: #f1f1f1; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <div class=\"logo\">DressForPleasure</div>\n            <h2>🎉 Willkommen in der Familie!</h2>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"welcome-box\">\n                <h2>✅ Anmeldung erfolgreich bestätigt!</h2>\n                <p>Hallo{{ $json.name ? ' ' + $json.name : '' }},</p>\n                <p>herzlich willkommen bei DressForPleasure! Ihre Newsletter-Anmeldung wurde erfolgreich bestätigt.</p>\n                <p>Sie erhalten ab sofort exklusive Fashion-News, Style-Tipps und besondere Angebote direkt in Ihr Postfach.</p>\n            </div>\n            \n            <div class=\"discount-box\">\n                <h3>🎁 Willkommensgeschenk!</h3>\n                <p>Als Dankeschön für Ihre Anmeldung erhalten Sie einen exklusiven Rabatt:</p>\n                <div class=\"discount-code\">WELCOME15</div>\n                <p><strong>15% Rabatt auf Ihre erste Bestellung!</strong></p>\n                <p style=\"font-size: 14px;\">Gültig bis {{ DateTime.now().plus({days: 30}).toFormat('dd.MM.yyyy') }} | Mindestbestellwert: 50€</p>\n                \n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}?utm_source=newsletter&utm_campaign=welcome\" class=\"button\">Jetzt einkaufen</a>\n            </div>\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; margin: 20px 0;\">\n                <h3>📬 Was Sie erwarten können:</h3>\n                <ul style=\"text-align: left; padding-left: 20px;\">\n                    <li>🆕 Neue Kollektionen und Trends</li>\n                    <li>💰 Exklusive Rabatte und Sale-Aktionen</li>\n                    <li>🎯 Personalisierte Style-Empfehlungen</li>\n                    <li>⚡ Early Access zu limitierten Editionen</li>\n                    <li>📚 Fashion-Tipps von unseren Experten</li>\n                </ul>\n            </div>\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;\">\n                <p><strong>🔔 Newsletter-Einstellungen verwalten</strong></p>\n                <p style=\"font-size: 14px;\">Sie können Ihre Newsletter-Präferenzen jederzeit anpassen oder sich abmelden.</p>\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/newsletter/preferences?email={{ $json.email }}\" style=\"color: #27ae60;\">Einstellungen verwalten</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Vielen Dank für Ihr Vertrauen!<br><strong>Ihr DressForPleasure Team</strong></p>\n            <p style=\"font-size: 12px; color: #999;\">Sie erhalten diese E-Mail, weil Sie sich für unseren Newsletter angemeldet haben.<br>\n            <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/newsletter/unsubscribe?email={{ $json.email }}\">Abmelden</a></p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-welcome-email",
+      "name": "Willkommens-E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [900, 600],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Willkommens-E-Mail mit Rabattcode"
+    },
+    {
+      "parameters": {
+        "chatId": "="{{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ **NEWSLETTER-BESTÄTIGUNG ERFOLGREICH** ✅\n\n👤 **Kunde:** {{ $json.name || 'Unbekannt' }}\n📧 **E-Mail:** {{ $json.email }}\n⏰ **Bestätigt am:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n🎁 **Willkommensbonus:** WELCOME15 (15% Rabatt)\n📊 **Status:** Aktiv angemeldet\n\n📈 *Ein neuer Newsletter-Abonnent!*\n\n*Newsletter Management Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-confirmation-notification",
+      "name": "Telegram Bestätigung-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 600],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über erfolgreiche Bestätigung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Newsletter-Anmeldung erfolgreich bestätigt! Willkommen bei DressForPleasure.\", \"welcomeBonusCode\": \"WELCOME15\" }"
+      },
+      "id": "webhook-confirm-success",
+      "name": "Confirm Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 600],
+      "notes": "Bestätigt erfolgreiche Newsletter-Bestätigung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Ungültiger oder abgelaufener Bestätigungslink.\" }",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "webhook-confirm-error",
+      "name": "Confirm Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 900],
+      "notes": "Fehlerantwort bei ungültiger Bestätigung"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "newsletter_management"
+            },
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "event_type",
+              "value": "newsletter_signup_confirmed"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Newsletter subscription confirmed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ email: $json.email, name: $json.name, confirmedAt: DateTime.now().toISO() }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-newsletter-event",
+      "name": "Newsletter-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 700],
+      "notes": "Loggt Newsletter-Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Webhook - Newsletter Anmeldung": {
+      "main": [
+        [
+          {
+            "node": "E-Mail validieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail validieren": {
+      "main": [
+        [
+          {
+            "node": "Bestehende Anmeldung prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestehende Anmeldung prüfen": {
+      "main": [
+        [
+          {
+            "node": "Bereits angemeldet?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bereits angemeldet?": {
+      "main": [
+        [
+          {
+            "node": "Anmeldedaten vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Already Subscribed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anmeldedaten vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Newsletter-Anmeldung erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Newsletter-Anmeldung erstellen": {
+      "main": [
+        [
+          {
+            "node": "Bestätigungs-E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestätigungs-E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Telegram Anmeldung-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Anmeldung-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Newsletter Bestätigung": {
+      "main": [
+        [
+          {
+            "node": "Anmeldung bestätigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anmeldung bestätigen": {
+      "main": [
+        [
+          {
+            "node": "Bestätigung erfolgreich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestätigung erfolgreich?": {
+      "main": [
+        [
+          {
+            "node": "Willkommens-E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Willkommens-E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Telegram Bestätigung-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Bestätigung-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Newsletter-Event loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Newsletter-Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Confirm Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "7",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "6",
+      "name": "customer-service"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "11",
+      "name": "newsletter"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "12",
+      "name": "marketing"
+    }
+  ]
+}

@@ -1,0 +1,500 @@
+{
+  "name": "05 - Lagerbestand-Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-daily-check",
+      "name": "Tägliche Lagerbestand-Prüfung",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft täglich um 9:00 Uhr"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/inventory/check-all",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3
+          }
+        }
+      },
+      "id": "fetch-inventory-status",
+      "name": "Inventar-Status abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "Ruft aktuellen Lagerbestand aller Produkte ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inventory Analysis & Filtering\nconst inventoryData = $input.all()[0].json;\nconst lowStockThreshold = parseInt($env.LOW_STOCK_THRESHOLD) || 5;\nconst criticalStockThreshold = parseInt($env.CRITICAL_STOCK_THRESHOLD) || 2;\n\n// Filter products with low or critical stock\nconst lowStockProducts = [];\nconst criticalStockProducts = [];\nconst outOfStockProducts = [];\n\ninventoryData.products.forEach(product => {\n  const totalStock = product.variants.reduce((sum, variant) => sum + variant.stock, 0);\n  \n  if (totalStock === 0) {\n    outOfStockProducts.push({\n      ...product,\n      totalStock,\n      alertLevel: 'out_of_stock'\n    });\n  } else if (totalStock <= criticalStockThreshold) {\n    criticalStockProducts.push({\n      ...product,\n      totalStock,\n      alertLevel: 'critical'\n    });\n  } else if (totalStock <= lowStockThreshold) {\n    lowStockProducts.push({\n      ...product,\n      totalStock,\n      alertLevel: 'low'\n    });\n  }\n});\n\n// Calculate statistics\nconst stats = {\n  totalProducts: inventoryData.products.length,\n  lowStockCount: lowStockProducts.length,\n  criticalStockCount: criticalStockProducts.length,\n  outOfStockCount: outOfStockProducts.length,\n  healthyStockCount: inventoryData.products.length - (lowStockProducts.length + criticalStockProducts.length + outOfStockProducts.length)\n};\n\nreturn {\n  inventoryAnalysis: {\n    lowStockProducts,\n    criticalStockProducts,\n    outOfStockProducts,\n    stats,\n    thresholds: {\n      low: lowStockThreshold,\n      critical: criticalStockThreshold\n    },\n    checkDate: new Date().toISOString(),\n    hasAlerts: (lowStockProducts.length + criticalStockProducts.length + outOfStockProducts.length) > 0\n  }\n};"
+      },
+      "id": "analyze-inventory-data",
+      "name": "Inventar-Daten analysieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Analysiert Lagerbestände und kategorisiert Alerts"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-alerts",
+              "leftValue": "={{ $json.inventoryAnalysis.hasAlerts }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-alerts-exist",
+      "name": "Alerts vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Prüft ob Lagerbestand-Alerts vorliegen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Telegram Alert Message\nconst analysis = $json.inventoryAnalysis;\nconst { stats, lowStockProducts, criticalStockProducts, outOfStockProducts } = analysis;\n\nlet message = \"📦 **TÄGLICHER LAGERBESTAND-REPORT** 📦\\n\\n\";\n\n// Statistics Overview\nmessage += \"📊 **Übersicht:**\\n\";\nmessage += `📋 Gesamt Produkte: **${stats.totalProducts}**\\n`;\nmessage += `✅ Gesunder Bestand: **${stats.healthyStockCount}**\\n`;\nmessage += `⚠️ Niedriger Bestand: **${stats.lowStockCount}**\\n`;\nmessage += `🚨 Kritischer Bestand: **${stats.criticalStockCount}**\\n`;\nmessage += `❌ Nicht verfügbar: **${stats.outOfStockCount}**\\n\\n`;\n\n// Critical Stock Alerts\nif (criticalStockProducts.length > 0) {\n  message += \"🚨 **KRITISCHE BESTÄNDE:**\\n\";\n  criticalStockProducts.slice(0, 5).forEach(product => {\n    message += `• ${product.name}: **${product.totalStock}** Stück\\n`;\n  });\n  if (criticalStockProducts.length > 5) {\n    message += `• ... und ${criticalStockProducts.length - 5} weitere\\n`;\n  }\n  message += \"\\n\";\n}\n\n// Out of Stock Alerts\nif (outOfStockProducts.length > 0) {\n  message += \"❌ **NICHT VERFÜGBAR:**\\n\";\n  outOfStockProducts.slice(0, 5).forEach(product => {\n    message += `• ${product.name}\\n`;\n  });\n  if (outOfStockProducts.length > 5) {\n    message += `• ... und ${outOfStockProducts.length - 5} weitere\\n`;\n  }\n  message += \"\\n\";\n}\n\n// Low Stock (only if not too many)\nif (lowStockProducts.length > 0 && lowStockProducts.length <= 10) {\n  message += \"⚠️ **NIEDRIGER BESTAND:**\\n\";\n  lowStockProducts.forEach(product => {\n    message += `• ${product.name}: ${product.totalStock} Stück\\n`;\n  });\n  message += \"\\n\";\n} else if (lowStockProducts.length > 10) {\n  message += `⚠️ **NIEDRIGER BESTAND:** ${lowStockProducts.length} Produkte\\n\\n`;\n}\n\nmessage += `📅 **Stand:** ${new Date().toLocaleDateString('de-DE')} ${new Date().toLocaleTimeString('de-DE')}\\n`;\nmessage += \"📊 [Inventar verwalten](\" + $env.DRESSFORP_FRONTEND_URL + \"/admin/inventory)\\n\\n\";\nmessage += \"*Automatischer Lagerbestand-Check*\";\n\nreturn {\n  telegramMessage: message,\n  alertSummary: {\n    criticalCount: criticalStockProducts.length,\n    outOfStockCount: outOfStockProducts.length,\n    lowStockCount: lowStockProducts.length\n  }\n};"
+      },
+      "id": "generate-alert-message",
+      "name": "Alert-Nachricht erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Erstellt formatierte Telegram-Nachricht"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.telegramMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-telegram-alert",
+      "name": "Telegram Alert senden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet Lagerbestand-Alert an Admin"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "🚨 Lagerbestand-Alert - {{ $json.alertSummary.criticalCount + $json.alertSummary.outOfStockCount }} kritische Produkte",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }\n        .header { background: #e74c3c; color: white; padding: 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .alert-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }\n        .critical { border-left: 4px solid #e74c3c; }\n        .warning { border-left: 4px solid #f39c12; }\n        .out-of-stock { border-left: 4px solid #7f8c8d; }\n        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }\n        .stat-item { background: white; padding: 15px; border-radius: 8px; text-align: center; border-left: 4px solid #3498db; }\n        .button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }\n        ul { list-style-type: none; padding: 0; }\n        li { padding: 5px 0; border-bottom: 1px solid #eee; }\n    </style>\n</head>\n<body>\n    <div class=\"header\">\n        <h1>🚨 Lagerbestand-Alert</h1>\n        <p>Kritische Bestände erfordern Ihre Aufmerksamkeit</p>\n    </div>\n    \n    <div class=\"content\">\n        <div class=\"stats-grid\">\n            <div class=\"stat-item\">\n                <h3>{{ $json.inventoryAnalysis.stats.totalProducts }}</h3>\n                <p>Gesamt Produkte</p>\n            </div>\n            <div class=\"stat-item\">\n                <h3 style=\"color: #e74c3c;\">{{ $json.alertSummary.criticalCount }}</h3>\n                <p>Kritischer Bestand</p>\n            </div>\n            <div class=\"stat-item\">\n                <h3 style=\"color: #7f8c8d;\">{{ $json.alertSummary.outOfStockCount }}</h3>\n                <p>Nicht verfügbar</p>\n            </div>\n            <div class=\"stat-item\">\n                <h3 style=\"color: #f39c12;\">{{ $json.alertSummary.lowStockCount }}</h3>\n                <p>Niedriger Bestand</p>\n            </div>\n        </div>\n        \n        {{ $json.inventoryAnalysis.criticalStockProducts.length > 0 ? '\n        <div class=\"alert-box critical\">\n            <h3>🚨 Kritische Bestände (≤ ' + $json.inventoryAnalysis.thresholds.critical + ' Stück)</h3>\n            <ul>\n                ' + $json.inventoryAnalysis.criticalStockProducts.map(p => '<li><strong>' + p.name + '</strong>: ' + p.totalStock + ' Stück verfügbar</li>').join('') + '\n            </ul>\n        </div>' : '' }}\n        \n        {{ $json.inventoryAnalysis.outOfStockProducts.length > 0 ? '\n        <div class=\"alert-box out-of-stock\">\n            <h3>❌ Nicht verfügbare Produkte</h3>\n            <ul>\n                ' + $json.inventoryAnalysis.outOfStockProducts.map(p => '<li><strong>' + p.name + '</strong>: Ausverkauft</li>').join('') + '\n            </ul>\n        </div>' : '' }}\n        \n        {{ $json.inventoryAnalysis.lowStockProducts.length > 0 && $json.inventoryAnalysis.lowStockProducts.length <= 10 ? '\n        <div class=\"alert-box warning\">\n            <h3>⚠️ Niedriger Bestand (≤ ' + $json.inventoryAnalysis.thresholds.low + ' Stück)</h3>\n            <ul>\n                ' + $json.inventoryAnalysis.lowStockProducts.map(p => '<li><strong>' + p.name + '</strong>: ' + p.totalStock + ' Stück verfügbar</li>').join('') + '\n            </ul>\n        </div>' : '' }}\n        \n        <p><strong>Empfohlene Maßnahmen:</strong></p>\n        <ul style=\"list-style-type: disc; padding-left: 20px;\">\n            <li>Kritische Bestände sofort nachbestellen</li>\n            <li>Nicht verfügbare Produkte deaktivieren oder nachbestellen</li>\n            <li>Lieferanten kontaktieren für Expresslieferungen</li>\n            <li>Kunden bei Rückfragen über Lieferzeiten informieren</li>\n        </ul>\n        \n        <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/inventory\" class=\"button\">Inventar verwalten</a>\n    </div>\n    \n    <div class=\"footer\">\n        <p>Automatischer Lagerbestand-Check - {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}<br>DressForPleasure Automatisierungssystem</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-email-alert",
+      "name": "E-Mail Alert senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierten E-Mail-Report"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-critical-stock",
+              "leftValue": "={{ $json.alertSummary.criticalCount + $json.alertSummary.outOfStockCount }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-critical-alerts",
+      "name": "Kritische Alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "notes": "Prüft ob kritische Alerts vorliegen"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Auto-deactivate out-of-stock products\nconst analysis = $json.inventoryAnalysis;\nconst outOfStockProducts = analysis.outOfStockProducts;\n\nif (outOfStockProducts.length === 0) {\n  return { message: 'No out-of-stock products to deactivate' };\n}\n\n// Prepare batch update for out-of-stock products\nconst productUpdates = outOfStockProducts.map(product => ({\n  id: product.id,\n  isActive: false,\n  reason: 'Automatically deactivated - out of stock',\n  deactivatedAt: new Date().toISOString()\n}));\n\nreturn {\n  productUpdates,\n  updateCount: productUpdates.length,\n  deactivatedProducts: outOfStockProducts.map(p => p.name)\n};"
+      },
+      "id": "prepare-auto-deactivation",
+      "name": "Auto-Deaktivierung vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Bereitet automatische Deaktivierung vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/products/batch-update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "updates",
+              "value": "={{ JSON.stringify($json.productUpdates) }}"
+            },
+            {
+              "name": "reason",
+              "value": "automatic_inventory_management"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "execute-auto-deactivation",
+      "name": "Auto-Deaktivierung ausführen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 300],
+      "notes": "Deaktiviert nicht verfügbare Produkte automatisch"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "🔄 **AUTO-DEAKTIVIERUNG DURCHGEFÜHRT** 🔄\n\n📦 **Deaktivierte Produkte:** {{ $json.updateCount }}\n\n**Produkte:**\n{{ $json.deactivatedProducts.map(name => '• ' + name).join('\\n') }}\n\n✅ **Aktion:** Automatisch deaktiviert (nicht verfügbar)\n💡 **Grund:** Lagerbestand = 0\n\n📊 [Inventar verwalten]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/inventory)\n\n*Automatisches Inventar-Management*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "notify-auto-deactivation",
+      "name": "Auto-Deaktivierung melden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Meldet durchgeführte Auto-Deaktivierungen"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "✅ **LAGERBESTAND-CHECK ABGESCHLOSSEN** ✅\n\n📊 **Ergebnis:** Alle Bestände sind ausreichend\n📋 **Geprüfte Produkte:** {{ $json.inventoryAnalysis.stats.totalProducts }}\n✅ **Gesunde Bestände:** {{ $json.inventoryAnalysis.stats.healthyStockCount }}\n📅 **Stand:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n💚 *Keine Maßnahmen erforderlich*\n\n*Automatischer Lagerbestand-Check*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-healthy-status",
+      "name": "Gesunder Status melden",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Meldet wenn alle Bestände gesund sind"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "inventory_alerts"
+            },
+            {
+              "name": "event_type",
+              "value": "daily_inventory_check"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Daily inventory check completed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify($json.inventoryAnalysis.stats) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-inventory-check",
+      "name": "Inventar-Check loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2660, 400],
+      "notes": "Loggt Inventar-Check für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Tägliche Lagerbestand-Prüfung": {
+      "main": [
+        [
+          {
+            "node": "Inventar-Status abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventar-Status abrufen": {
+      "main": [
+        [
+          {
+            "node": "Inventar-Daten analysieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventar-Daten analysieren": {
+      "main": [
+        [
+          {
+            "node": "Alerts vorhanden?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alerts vorhanden?": {
+      "main": [
+        [
+          {
+            "node": "Alert-Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gesunder Status melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert-Nachricht erstellen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert senden": {
+      "main": [
+        [
+          {
+            "node": "E-Mail Alert senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E-Mail Alert senden": {
+      "main": [
+        [
+          {
+            "node": "Kritische Alerts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kritische Alerts?": {
+      "main": [
+        [
+          {
+            "node": "Auto-Deaktivierung vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Inventar-Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Deaktivierung vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Auto-Deaktivierung ausführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Deaktivierung ausführen": {
+      "main": [
+        [
+          {
+            "node": "Auto-Deaktivierung melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Deaktivierung melden": {
+      "main": [
+        [
+          {
+            "node": "Inventar-Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gesunder Status melden": {
+      "main": [
+        [
+          {
+            "node": "Inventar-Check loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "5",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "7",
+      "name": "product-management"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "8",
+      "name": "inventory"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

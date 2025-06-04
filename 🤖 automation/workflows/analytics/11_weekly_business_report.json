@@ -1,0 +1,537 @@
+{
+  "name": "11 - Wöchentlicher Business Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule-weekly-report",
+      "name": "Wöchentlicher Report (Montag 9:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Läuft jeden Montag um 9:00 Uhr"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-week-ranges",
+              "name": "weekRanges",
+              "value": "={{ {\n  currentWeekStart: DateTime.now().startOf('week').toFormat('yyyy-MM-dd'),\n  currentWeekEnd: DateTime.now().endOf('week').toFormat('yyyy-MM-dd'),\n  lastWeekStart: DateTime.now().minus({weeks: 1}).startOf('week').toFormat('yyyy-MM-dd'),\n  lastWeekEnd: DateTime.now().minus({weeks: 1}).endOf('week').toFormat('yyyy-MM-dd'),\n  last4WeeksStart: DateTime.now().minus({weeks: 4}).startOf('week').toFormat('yyyy-MM-dd'),\n  currentWeekNumber: DateTime.now().weekNumber,\n  currentYear: DateTime.now().year\n} }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-week-periods",
+      "name": "Wochenzeiträume definieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300],
+      "notes": "Bereitet Zeiträume für Wochenanalyse vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/sales/weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "weekStart",
+              "value": "={{ $json.weekRanges.lastWeekStart }}"
+            },
+            {
+              "name": "weekEnd",
+              "value": "={{ $json.weekRanges.lastWeekEnd }}"
+            },
+            {
+              "name": "compareWith",
+              "value": "previous_week"
+            },
+            {
+              "name": "includeDetails",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-weekly-sales",
+      "name": "Wöchentliche Verkaufsdaten",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 200],
+      "notes": "Ruft detaillierte Verkaufsdaten der letzten Woche ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/customers/weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "weekStart",
+              "value": "={{ $json.weekRanges.lastWeekStart }}"
+            },
+            {
+              "name": "weekEnd",
+              "value": "={{ $json.weekRanges.lastWeekEnd }}"
+            },
+            {
+              "name": "includeSegmentation",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-customer-metrics",
+      "name": "Kunden-Metriken abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Ruft Kundendaten und Segmentierung ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/products/performance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "period",
+              "value": "last_week"
+            },
+            {
+              "name": "metrics",
+              "value": "sales,revenue,conversion,returns"
+            },
+            {
+              "name": "categoryBreakdown",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "fetch-product-performance",
+      "name": "Produkt-Performance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 400],
+      "notes": "Ruft Produktleistung und Kategorien ab"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/marketing/weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "weekStart",
+              "value": "={{ $json.weekRanges.lastWeekStart }}"
+            },
+            {
+              "name": "includeChannels",
+              "value": "true"
+            },
+            {
+              "name": "includeConversion",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "fetch-marketing-metrics",
+      "name": "Marketing-Metriken",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 500],
+      "notes": "Ruft Marketing-Performance ab"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comprehensive Weekly Business Analysis\nconst salesData = $input.all()[1].json;\nconst customerData = $input.all()[2].json;\nconst productData = $input.all()[3].json;\nconst marketingData = $input.all()[4].json;\nconst weekRanges = $input.all()[0].json.weekRanges;\n\n// Calculate growth percentages\nfunction calculateGrowth(current, previous) {\n  if (!previous || previous === 0) return current > 0 ? 100 : 0;\n  return ((current - previous) / previous * 100).toFixed(1);\n}\n\n// Sales Performance Analysis\nconst salesPerformance = {\n  revenue: {\n    current: salesData.revenue || 0,\n    previous: salesData.previousWeekRevenue || 0,\n    growth: calculateGrowth(salesData.revenue || 0, salesData.previousWeekRevenue || 0),\n    target: salesData.weeklyTarget || 0,\n    achievement: salesData.weeklyTarget ? ((salesData.revenue / salesData.weeklyTarget) * 100).toFixed(1) : 0\n  },\n  orders: {\n    current: salesData.orderCount || 0,\n    previous: salesData.previousWeekOrders || 0,\n    growth: calculateGrowth(salesData.orderCount || 0, salesData.previousWeekOrders || 0),\n    averageValue: salesData.averageOrderValue || 0\n  },\n  conversion: {\n    rate: salesData.conversionRate || 0,\n    previous: salesData.previousConversionRate || 0,\n    growth: calculateGrowth(salesData.conversionRate || 0, salesData.previousConversionRate || 0)\n  }\n};\n\n// Customer Analytics\nconst customerAnalytics = {\n  newCustomers: customerData.newCustomers || 0,\n  returningCustomers: customerData.returningCustomers || 0,\n  customerRetentionRate: customerData.retentionRate || 0,\n  averageLifetimeValue: customerData.averageLTV || 0,\n  segments: customerData.segments || [],\n  churnRate: customerData.churnRate || 0\n};\n\n// Product Performance\nconst productPerformance = {\n  topProducts: productData.topProducts || [],\n  categoryPerformance: productData.categories || [],\n  newProductSales: productData.newProductSales || 0,\n  returnRate: productData.returnRate || 0,\n  inventoryTurns: productData.inventoryTurns || 0\n};\n\n// Marketing Performance\nconst marketingPerformance = {\n  websiteTraffic: marketingData.traffic || 0,\n  trafficGrowth: calculateGrowth(marketingData.traffic || 0, marketingData.previousTraffic || 0),\n  channels: marketingData.channels || [],\n  newsletterMetrics: {\n    subscribers: marketingData.newsletterSubscribers || 0,\n    openRate: marketingData.openRate || 0,\n    clickRate: marketingData.clickRate || 0\n  },\n  socialMedia: marketingData.socialMedia || {}\n};\n\n// Key Performance Indicators\nconst kpis = {\n  totalRevenue: salesPerformance.revenue.current,\n  revenueGrowth: salesPerformance.revenue.growth,\n  customerAcquisitionCost: marketingData.acquisitionCost || 0,\n  customerLifetimeValue: customerAnalytics.averageLifetimeValue,\n  profitMargin: salesData.profitMargin || 0,\n  inventoryDays: productData.averageInventoryDays || 0\n};\n\n// Business Insights Generation\nconst insights = [];\n\n// Revenue Insights\nif (parseFloat(salesPerformance.revenue.growth) > 15) {\n  insights.push(`📈 Starkes Umsatzwachstum: +${salesPerformance.revenue.growth}% vs. Vorwoche`);\n} else if (parseFloat(salesPerformance.revenue.growth) < -10) {\n  insights.push(`📉 Umsatzrückgang: ${salesPerformance.revenue.growth}% - Maßnahmen erforderlich`);\n}\n\n// Customer Insights\nif (customerAnalytics.newCustomers > customerAnalytics.returningCustomers) {\n  insights.push(`👥 Hohes Neukunden-Wachstum: ${customerAnalytics.newCustomers} neue Kunden`);\n}\n\nif (customerAnalytics.churnRate > 5) {\n  insights.push(`⚠️ Erhöhte Abwanderungsrate: ${customerAnalytics.churnRate}%`);\n}\n\n// Product Insights\nif (productPerformance.returnRate > 10) {\n  insights.push(`📦 Hohe Retourenquote: ${productPerformance.returnRate}% - Qualität prüfen`);\n}\n\n// Marketing Insights\nif (parseFloat(marketingPerformance.trafficGrowth) > 20) {\n  insights.push(`🌐 Starker Traffic-Anstieg: +${marketingPerformance.trafficGrowth}%`);\n}\n\n// Recommendations\nconst recommendations = [];\n\nif (parseFloat(salesPerformance.revenue.achievement) < 80) {\n  recommendations.push('🎯 Wochenziel gefährdet - Marketing-Kampagne verstärken');\n}\n\nif (customerAnalytics.customerRetentionRate < 70) {\n  recommendations.push('💝 Customer Retention Programme implementieren');\n}\n\nif (productPerformance.inventoryTurns < 4) {\n  recommendations.push('📦 Lagerbestand optimieren - langsame Artikel identifizieren');\n}\n\nreturn {\n  weeklyReport: {\n    reportPeriod: {\n      weekNumber: weekRanges.currentWeekNumber - 1,\n      year: weekRanges.currentYear,\n      startDate: weekRanges.lastWeekStart,\n      endDate: weekRanges.lastWeekEnd\n    },\n    salesPerformance,\n    customerAnalytics,\n    productPerformance,\n    marketingPerformance,\n    kpis,\n    insights,\n    recommendations,\n    generatedAt: new Date().toISOString()\n  }\n};"
+      },
+      "id": "analyze-weekly-data",
+      "name": "Wöchentliche Analyse durchführen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Führt umfassende Wochenanalyse durch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Comprehensive Weekly Report Message\nconst report = $json.weeklyReport;\n\nlet message = `📊 **WÖCHENTLICHER BUSINESS REPORT** 📊\\n`;\nmessage += `🗓️ **KW ${report.reportPeriod.weekNumber}/${report.reportPeriod.year}** (${DateTime.fromISO(report.reportPeriod.startDate).toFormat('dd.MM')} - ${DateTime.fromISO(report.reportPeriod.endDate).toFormat('dd.MM.yyyy')})\\n\\n`;\n\n// Sales Performance\nmessage += `💰 **SALES PERFORMANCE**\\n`;\nmessage += `├ Umsatz: **${report.salesPerformance.revenue.current.toFixed(2)}€**\\n`;\nmessage += `├ Wachstum: ${report.salesPerformance.revenue.growth > 0 ? '📈' : '📉'} **${report.salesPerformance.revenue.growth}%**\\n`;\nmessage += `├ Ziel-Erreichung: **${report.salesPerformance.revenue.achievement}%**\\n`;\nmessage += `├ Bestellungen: **${report.salesPerformance.orders.current}** (+${report.salesPerformance.orders.growth}%)\\n`;\nmessage += `└ Ø Bestellwert: **${report.salesPerformance.orders.averageValue.toFixed(2)}€**\\n\\n`;\n\n// Customer Analytics\nmessage += `👥 **CUSTOMER ANALYTICS**\\n`;\nmessage += `├ Neue Kunden: **${report.customerAnalytics.newCustomers}**\\n`;\nmessage += `├ Wiederkehrende: **${report.customerAnalytics.returningCustomers}**\\n`;\nmessage += `├ Retention Rate: **${report.customerAnalytics.customerRetentionRate}%**\\n`;\nmessage += `└ Ø Lifetime Value: **${report.customerAnalytics.averageLifetimeValue.toFixed(2)}€**\\n\\n`;\n\n// Top Products\nif (report.productPerformance.topProducts.length > 0) {\n  message += `🏆 **TOP PRODUKTE**\\n`;\n  report.productPerformance.topProducts.slice(0, 3).forEach((product, index) => {\n    const emoji = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';\n    message += `${emoji} ${product.name}: **${product.sales}** (${product.revenue.toFixed(2)}€)\\n`;\n  });\n  message += `\\n`;\n}\n\n// Marketing Performance\nmessage += `📈 **MARKETING PERFORMANCE**\\n`;\nmessage += `├ Website Traffic: **${report.marketingPerformance.websiteTraffic.toLocaleString()}** (+${report.marketingPerformance.trafficGrowth}%)\\n`;\nmessage += `├ Newsletter Abonnenten: **${report.marketingPerformance.newsletterMetrics.subscribers}**\\n`;\nmessage += `├ Öffnungsrate: **${report.marketingPerformance.newsletterMetrics.openRate}%**\\n`;\nmessage += `└ Conversion Rate: **${report.salesPerformance.conversion.rate}%**\\n\\n`;\n\n// Key Insights\nif (report.insights.length > 0) {\n  message += `💡 **KEY INSIGHTS**\\n`;\n  report.insights.forEach(insight => {\n    message += `• ${insight}\\n`;\n  });\n  message += `\\n`;\n}\n\n// Recommendations\nif (report.recommendations.length > 0) {\n  message += `🎯 **HANDLUNGSEMPFEHLUNGEN**\\n`;\n  report.recommendations.forEach(rec => {\n    message += `• ${rec}\\n`;\n  });\n  message += `\\n`;\n}\n\nmessage += `📊 [Vollständiger Report](${$env.DRESSFORP_FRONTEND_URL}/admin/analytics/weekly)\\n\\n`;\nmessage += `*Wöchentlicher Business Intelligence Report*`;\n\nreturn { weeklyMessage: message };"
+      },
+      "id": "generate-weekly-message",
+      "name": "Wöchentliche Nachricht erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Erstellt formatierte Telegram-Nachricht"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.weeklyMessage }}",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "send-telegram-report",
+      "name": "Telegram Weekly Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Sendet wöchentlichen Report per Telegram"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $env.ADMIN_EMAIL }}",
+        "subject": "📊 Wöchentlicher Business Report KW{{ $json.weeklyReport.reportPeriod.weekNumber }} - {{ $json.weeklyReport.salesPerformance.revenue.current.toFixed(2) }}€ Umsatz",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 900px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%); color: white; padding: 40px 20px; text-align: center; }\n        .content { padding: 40px 30px; background: #f8f9fa; }\n        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }\n        .metric-card { background: white; padding: 25px; border-radius: 12px; text-align: center; box-shadow: 0 3px 10px rgba(0,0,0,0.1); border-left: 4px solid #3498db; }\n        .metric-value { font-size: 28px; font-weight: bold; color: #2c3e50; margin: 10px 0; }\n        .metric-trend { font-size: 14px; margin-top: 8px; font-weight: 600; }\n        .trend-up { color: #27ae60; }\n        .trend-down { color: #e74c3c; }\n        .section { background: white; padding: 30px; border-radius: 12px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }\n        .section-title { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px; }\n        .products-table { width: 100%; border-collapse: collapse; margin: 20px 0; }\n        .products-table th, .products-table td { padding: 15px; text-align: left; border-bottom: 1px solid #ddd; }\n        .products-table th { background: #f8f9fa; font-weight: 600; }\n        .insights { background: #e8f4fd; border: 1px solid #bee5eb; border-radius: 8px; padding: 20px; margin: 20px 0; }\n        .recommendations { background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 20px; margin: 20px 0; }\n        .footer { text-align: center; padding: 30px; color: #666; font-size: 14px; }\n        .chart-placeholder { background: #f8f9fa; height: 200px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #666; margin: 20px 0; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>📊 Wöchentlicher Business Report</h1>\n            <p>KW {{ $json.weeklyReport.reportPeriod.weekNumber }}/{{ $json.weeklyReport.reportPeriod.year }} | {{ DateTime.fromISO($json.weeklyReport.reportPeriod.startDate).toFormat('dd.MM') }} - {{ DateTime.fromISO($json.weeklyReport.reportPeriod.endDate).toFormat('dd.MM.yyyy') }}</p>\n        </div>\n        \n        <div class=\"content\">\n            <!-- Executive Summary -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">📈 Executive Summary</h2>\n                <div class=\"metrics-grid\">\n                    <div class=\"metric-card\">\n                        <h3>💰 Wochenumsatz</h3>\n                        <div class=\"metric-value\">{{ $json.weeklyReport.salesPerformance.revenue.current.toFixed(2) }}€</div>\n                        <div class=\"metric-trend {{ $json.weeklyReport.salesPerformance.revenue.growth >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.weeklyReport.salesPerformance.revenue.growth >= 0 ? '📈' : '📉' }} {{ $json.weeklyReport.salesPerformance.revenue.growth }}% vs. Vorwoche\n                        </div>\n                    </div>\n                    \n                    <div class=\"metric-card\">\n                        <h3>🛒 Bestellungen</h3>\n                        <div class=\"metric-value\">{{ $json.weeklyReport.salesPerformance.orders.current }}</div>\n                        <div class=\"metric-trend {{ $json.weeklyReport.salesPerformance.orders.growth >= 0 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.weeklyReport.salesPerformance.orders.growth >= 0 ? '📈' : '📉' }} {{ $json.weeklyReport.salesPerformance.orders.growth }}%\n                        </div>\n                    </div>\n                    \n                    <div class=\"metric-card\">\n                        <h3>👥 Neue Kunden</h3>\n                        <div class=\"metric-value\">{{ $json.weeklyReport.customerAnalytics.newCustomers }}</div>\n                        <div class=\"metric-trend trend-up\">\n                            Customer Acquisition\n                        </div>\n                    </div>\n                    \n                    <div class=\"metric-card\">\n                        <h3>🎯 Ziel-Erreichung</h3>\n                        <div class=\"metric-value\">{{ $json.weeklyReport.salesPerformance.revenue.achievement }}%</div>\n                        <div class=\"metric-trend {{ $json.weeklyReport.salesPerformance.revenue.achievement >= 100 ? 'trend-up' : 'trend-down' }}\">\n                            {{ $json.weeklyReport.salesPerformance.revenue.achievement >= 100 ? '✅ Erreicht' : '⚠️ Unter Ziel' }}\n                        </div>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Customer Analytics -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">👥 Customer Analytics</h2>\n                <div class=\"metrics-grid\">\n                    <div style=\"text-align: left;\">\n                        <h4>Kunden-Segmentierung</h4>\n                        <p><strong>Neue Kunden:</strong> {{ $json.weeklyReport.customerAnalytics.newCustomers }}</p>\n                        <p><strong>Wiederkehrende Kunden:</strong> {{ $json.weeklyReport.customerAnalytics.returningCustomers }}</p>\n                        <p><strong>Retention Rate:</strong> {{ $json.weeklyReport.customerAnalytics.customerRetentionRate }}%</p>\n                        <p><strong>Churn Rate:</strong> {{ $json.weeklyReport.customerAnalytics.churnRate }}%</p>\n                    </div>\n                    <div style=\"text-align: left;\">\n                        <h4>Customer Value</h4>\n                        <p><strong>Ø Lifetime Value:</strong> {{ $json.weeklyReport.customerAnalytics.averageLifetimeValue.toFixed(2) }}€</p>\n                        <p><strong>Ø Bestellwert:</strong> {{ $json.weeklyReport.salesPerformance.orders.averageValue.toFixed(2) }}€</p>\n                        <p><strong>Conversion Rate:</strong> {{ $json.weeklyReport.salesPerformance.conversion.rate }}%</p>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Product Performance -->\n            {{ $json.weeklyReport.productPerformance.topProducts.length > 0 ? '\n            <div class=\"section\">\n                <h2 class=\"section-title\">🏆 Top-Performance Produkte</h2>\n                <table class=\"products-table\">\n                    <thead>\n                        <tr>\n                            <th>Rang</th>\n                            <th>Produkt</th>\n                            <th>Verkäufe</th>\n                            <th>Umsatz</th>\n                            <th>Performance</th>\n                        </tr>\n                    </thead>\n                    <tbody>\n                        ' + $json.weeklyReport.productPerformance.topProducts.slice(0, 5).map((product, index) => {\n                            const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];\n                            return '<tr><td>' + (medals[index] || (index + 1)) + '</td><td><strong>' + product.name + '</strong></td><td>' + product.sales + ' Stück</td><td>' + product.revenue.toFixed(2) + '€</td><td><span style=\"color: #27ae60;\">📈 +' + (product.growth || 0) + '%</span></td></tr>';\n                        }).join('') + '\n                    </tbody>\n                </table>\n            </div>' : '' }}\n            \n            <!-- Marketing Performance -->\n            <div class=\"section\">\n                <h2 class=\"section-title\">📈 Marketing Performance</h2>\n                <div class=\"metrics-grid\">\n                    <div style=\"text-align: left;\">\n                        <h4>Traffic & Engagement</h4>\n                        <p><strong>Website Traffic:</strong> {{ $json.weeklyReport.marketingPerformance.websiteTraffic.toLocaleString() }} Besucher</p>\n                        <p><strong>Traffic Wachstum:</strong> {{ $json.weeklyReport.marketingPerformance.trafficGrowth }}%</p>\n                        <p><strong>Conversion Rate:</strong> {{ $json.weeklyReport.salesPerformance.conversion.rate }}%</p>\n                    </div>\n                    <div style=\"text-align: left;\">\n                        <h4>Newsletter Performance</h4>\n                        <p><strong>Abonnenten:</strong> {{ $json.weeklyReport.marketingPerformance.newsletterMetrics.subscribers }}</p>\n                        <p><strong>Öffnungsrate:</strong> {{ $json.weeklyReport.marketingPerformance.newsletterMetrics.openRate }}%</p>\n                        <p><strong>Klickrate:</strong> {{ $json.weeklyReport.marketingPerformance.newsletterMetrics.clickRate }}%</p>\n                    </div>\n                </div>\n            </div>\n            \n            <!-- Insights -->\n            {{ $json.weeklyReport.insights.length > 0 ? '\n            <div class=\"insights\">\n                <h3>💡 Key Insights dieser Woche</h3>\n                ' + $json.weeklyReport.insights.map(insight => '<p>• ' + insight + '</p>').join('') + '\n            </div>' : '' }}\n            \n            <!-- Recommendations -->\n            {{ $json.weeklyReport.recommendations.length > 0 ? '\n            <div class=\"recommendations\">\n                <h3>🎯 Strategische Empfehlungen</h3>\n                ' + $json.weeklyReport.recommendations.map(rec => '<p>• ' + rec + '</p>').join('') + '\n            </div>' : '' }}\n            \n            <div class=\"section\" style=\"text-align: center;\">\n                <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/admin/analytics/weekly\" style=\"background: #3498db; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600;\">📊 Vollständigen Report anzeigen</a>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Wöchentlicher Business Intelligence Report - {{ DateTime.fromISO($json.weeklyReport.generatedAt).toFormat('dd.MM.yyyy HH:mm') }}<br>\n            DressForPleasure Analytics & Business Intelligence System</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-weekly-email",
+      "name": "Weekly E-Mail Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 300],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet detaillierten wöchentlichen E-Mail-Report"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/analytics/reports/weekly",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "reportData",
+              "value": "={{ JSON.stringify($json.weeklyReport) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "store-weekly-report",
+      "name": "Weekly Report speichern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 300],
+      "notes": "Speichert wöchentlichen Report in der Datenbank"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "weekly_business_report"
+            },
+            {
+              "name": "event_type",
+              "value": "weekly_report_generated"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Weekly business report generated and distributed"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ weekNumber: $json.weeklyReport.reportPeriod.weekNumber, revenue: $json.weeklyReport.salesPerformance.revenue.current, insightsCount: $json.weeklyReport.insights.length }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-weekly-report",
+      "name": "Weekly Report loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 300],
+      "notes": "Loggt Weekly Report für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Wöchentlicher Report (Montag 9:00)": {
+      "main": [
+        [
+          {
+            "node": "Wochenzeiträume definieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wochenzeiträume definieren": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Verkaufsdaten",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Kunden-Metriken abrufen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Produkt-Performance",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Marketing-Metriken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentliche Verkaufsdaten": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Analyse durchführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kunden-Metriken abrufen": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Analyse durchführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Produkt-Performance": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Analyse durchführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marketing-Metriken": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Analyse durchführen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentliche Analyse durchführen": {
+      "main": [
+        [
+          {
+            "node": "Wöchentliche Nachricht erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wöchentliche Nachricht erstellen": {
+      "main": [
+        [
+          {
+            "node": "Telegram Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Weekly Report": {
+      "main": [
+        [
+          {
+            "node": "Weekly E-Mail Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly E-Mail Report": {
+      "main": [
+        [
+          {
+            "node": "Weekly Report speichern",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Report speichern": {
+      "main": [
+        [
+          {
+            "node": "Weekly Report loggen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "11",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "13",
+      "name": "analytics"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "14",
+      "name": "reports"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "18",
+      "name": "business-intelligence"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "9",
+      "name": "scheduled"
+    }
+  ]
+}

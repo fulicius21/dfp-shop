@@ -1,0 +1,583 @@
+{
+  "name": "09 - Bewertungsanfrage nach Zustellung",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "review-request",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-review-trigger",
+      "name": "Webhook - Review Request Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "review-request-webhook",
+      "notes": "Wird vom Order Status Update Workflow getriggert"
+    },
+    {
+      "parameters": {
+        "amount": 7,
+        "unit": "days"
+      },
+      "id": "wait-for-delivery-experience",
+      "name": "7 Tage nach Zustellung warten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [460, 300],
+      "notes": "Wartet 7 Tage damit Kunde das Produkt testen kann"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/orders/{{ $json.orderId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "fetch-order-details",
+      "name": "Bestelldetails abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Ruft aktuelle Bestelldetails ab"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "still-delivered",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "delivered",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "not-reviewed",
+              "leftValue": "={{ $json.hasReview }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combineOperation": "all"
+        }
+      },
+      "id": "check-review-eligibility",
+      "name": "Review berechtigt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Prüft ob Review-Anfrage noch relevant ist"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "generate-review-token",
+              "name": "reviewToken",
+              "value": "={{ $crypto.randomBytes(32).toString('hex') }}",
+              "type": "string"
+            },
+            {
+              "id": "format-customer-name",
+              "name": "customerName",
+              "value": "={{ $json.billingAddress?.firstName || $json.customerName || 'Kunde' }}",
+              "type": "string"
+            },
+            {
+              "id": "create-review-url",
+              "name": "reviewUrl",
+              "value": "={{ $env.DRESSFORP_FRONTEND_URL }}/orders/{{ $json.id }}/review?token={{ $crypto.randomBytes(32).toString('hex') }}",
+              "type": "string"
+            },
+            {
+              "id": "format-order-items",
+              "name": "orderItems",
+              "value": "={{ $json.items?.map(item => ({\n  name: item.product?.name || item.name,\n  quantity: item.quantity,\n  price: item.price\n})) || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "calculate-days-since-delivery",
+              "name": "daysSinceDelivery",
+              "value": "={{ Math.floor((new Date() - new Date($json.deliveredAt || $json.updatedAt)) / (1000 * 60 * 60 * 24)) }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "prepare-review-data",
+      "name": "Review-Daten vorbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1120, 200],
+      "notes": "Bereitet Daten für Review-Anfrage vor"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/reviews/create-request",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "orderId",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "customerEmail",
+              "value": "={{ $json.customerEmail }}"
+            },
+            {
+              "name": "reviewToken",
+              "value": "={{ $json.reviewToken }}"
+            },
+            {
+              "name": "expiresAt",
+              "value": "={{ DateTime.now().plus({days: 30}).toISO() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "create-review-request",
+      "name": "Review-Request erstellen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "notes": "Erstellt Review-Request im Backend"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Wie war Ihr Einkauf bei DressForPleasure? 🌟",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 650px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 40px 20px; text-align: center; }\n        .logo { font-size: 28px; font-weight: bold; margin-bottom: 10px; }\n        .content { padding: 40px 30px; background: #f8f9fa; }\n        .review-box { background: white; padding: 30px; border-radius: 12px; border-left: 4px solid #f39c12; margin: 20px 0; text-align: center; }\n        .order-items { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }\n        .item { padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }\n        .item:last-child { border-bottom: none; }\n        .stars { font-size: 30px; margin: 20px 0; }\n        .star-rating { display: inline-block; margin: 0 15px; }\n        .star-rating a { color: #ddd; text-decoration: none; font-size: 40px; transition: color 0.3s; }\n        .star-rating a:hover { color: #f39c12; }\n        .review-button { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 18px 40px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold; margin: 20px 0; font-size: 18px; box-shadow: 0 4px 15px rgba(243, 156, 18, 0.3); }\n        .review-button:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(243, 156, 18, 0.4); }\n        .benefits { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }\n        .benefit-item { padding: 10px 0; display: flex; align-items: center; }\n        .benefit-icon { background: #f39c12; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 15px; font-size: 14px; }\n        .footer { text-align: center; padding: 30px; color: #666; font-size: 14px; background: #f1f1f1; }\n        .social-proof { background: #e8f5e8; border: 1px solid #c3e6c3; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <div class=\"logo\">DressForPleasure</div>\n            <h2>🌟 Wie war Ihr Einkaufserlebnis?</h2>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"review-box\">\n                <h2>Hallo {{ $json.customerName }},</h2>\n                <p>vor {{ $json.daysSinceDelivery }} Tagen haben Sie Ihre Bestellung von DressForPleasure erhalten. Wir hoffen, Sie sind mit Ihren neuen Fashion-Pieces zufrieden!</p>\n                \n                <div class=\"stars\">⭐⭐⭐⭐⭐</div>\n                \n                <p><strong>Ihre Meinung ist uns wichtig!</strong><br>\n                Helfen Sie anderen Kunden mit einer ehrlichen Bewertung und erhalten Sie als Dankeschön einen exklusiven Rabatt.</p>\n                \n                <a href=\"{{ $json.reviewUrl }}\" class=\"review-button\">⭐ Jetzt bewerten & Bonus sichern</a>\n            </div>\n            \n            <div class=\"order-items\">\n                <h3>📦 Ihre bestellten Artikel</h3>\n                {{ $json.orderItems.map(item => '\n                <div class=\"item\">\n                    <div>\n                        <strong>' + item.name + '</strong><br>\n                        <small>Anzahl: ' + item.quantity + '</small>\n                    </div>\n                    <div style=\"text-align: right;\">\n                        <strong>' + item.price.toFixed(2) + '€</strong>\n                    </div>\n                </div>').join('') }}\n            </div>\n            \n            <div class=\"benefits\">\n                <h3>🎁 Ihre Bewertungs-Vorteile</h3>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">💰</div>\n                    <div>\n                        <strong>10% Rabatt-Gutschein</strong><br>\n                        Für Ihre nächste Bestellung ab 50€\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">⚡</div>\n                    <div>\n                        <strong>VIP Early Access</strong><br>\n                        Exklusiver Zugang zu neuen Kollektionen\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">👥</div>\n                    <div>\n                        <strong>Community Impact</strong><br>\n                        Helfen Sie anderen bei der Produktauswahl\n                    </div>\n                </div>\n                \n                <div class=\"benefit-item\">\n                    <div class=\"benefit-icon\">🎯</div>\n                    <div>\n                        <strong>Personalisierte Empfehlungen</strong><br>\n                        Bessere Produktvorschläge basierend auf Ihren Bewertungen\n                    </div>\n                </div>\n            </div>\n            \n            <div class=\"social-proof\">\n                <h3>💚 Warum Bewertungen wichtig sind</h3>\n                <p>\"Dank der ehrlichen Bewertungen habe ich das perfekte Kleid gefunden!\" - <em>Sarah M.</em></p>\n                <p>\"Die Bewertungen haben mir bei der Größenauswahl sehr geholfen.\" - <em>Lisa K.</em></p>\n            </div>\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;\">\n                <p><strong>⏰ Jetzt bewerten - Angebot gültig bis {{ DateTime.now().plus({days: 14}).toFormat('dd.MM.yyyy') }}</strong></p>\n                <p style=\"font-size: 14px; color: #666;\">Die Bewertung dauert nur 2 Minuten und ist völlig anonym.</p>\n                \n                <a href=\"{{ $json.reviewUrl }}\" style=\"background: #27ae60; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px;\">✍️ Bewertung schreiben</a>\n            </div>\n            \n            <p style=\"color: #666; font-size: 14px; text-align: center;\">Falls der Button nicht funktioniert, kopieren Sie diesen Link:<br>\n            <a href=\"{{ $json.reviewUrl }}\">{{ $json.reviewUrl }}</a></p>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Vielen Dank für Ihr Vertrauen!<br><strong>Ihr DressForPleasure Team</strong></p>\n            \n            <p style=\"font-size: 12px; color: #999;\">Sie erhalten diese E-Mail, weil Sie kürzlich bei uns eingekauft haben.<br>\n            Falls Sie keine weiteren Review-Anfragen erhalten möchten, <a href=\"{{ $env.DRESSFORP_FRONTEND_URL }}/unsubscribe-reviews?email={{ $json.customerEmail }}\">hier klicken</a>.</p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-review-request-email",
+      "name": "Review-Anfrage E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1560, 200],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet personalisierte Review-Anfrage per E-Mail"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "⭐ **REVIEW-ANFRAGE VERSENDET** ⭐\n\n📋 **Bestellung:** `{{ $json.orderNumber }}`\n👤 **Kunde:** {{ $json.customerName }}\n📧 **E-Mail:** {{ $json.customerEmail }}\n📦 **Artikel:** {{ $json.orderItems.length }} Stück\n📅 **Zustellung:** vor {{ $json.daysSinceDelivery }} Tagen\n⏰ **Anfrage gesendet:** {{ DateTime.now().toFormat('dd.MM.yyyy HH:mm') }}\n\n🎁 **Anreiz:** 10% Rabatt-Gutschein\n💡 **Gültigkeit:** 14 Tage\n\n📊 [Reviews verwalten]({{ $env.DRESSFORP_FRONTEND_URL }}/admin/reviews)\n\n*Review Request Automatisierung*",
+        "additionalFields": {
+          "parseMode": "Markdown",
+          "disableWebPagePreview": true
+        }
+      },
+      "id": "telegram-review-notification",
+      "name": "Telegram Review-Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credentials",
+          "name": "DressForPleasure Telegram Bot"
+        }
+      },
+      "notes": "Benachrichtigt über versendete Review-Anfrage"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"success\", \"message\": \"Review request processed\", \"orderId\": $json.id, \"sent\": true }"
+      },
+      "id": "webhook-success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2000, 200],
+      "notes": "Bestätigt erfolgreiche Verarbeitung"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"skipped\", \"message\": \"Review request not eligible\", \"reason\": \"Order status changed or already reviewed\" }"
+      },
+      "id": "webhook-skipped-response",
+      "name": "Skipped Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 500],
+      "notes": "Antwort wenn Review-Anfrage übersprungen wird"
+    },
+    {
+      "parameters": {
+        "amount": 14,
+        "unit": "days"
+      },
+      "id": "wait-for-follow-up",
+      "name": "14 Tage für Follow-up warten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2000, 400],
+      "notes": "Wartet weitere 14 Tage für Follow-up"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/reviews/check-status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "orderId",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-review-status",
+      "name": "Review-Status prüfen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 400],
+      "notes": "Prüft ob Review inzwischen abgegeben wurde"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "no-review-yet",
+              "leftValue": "={{ $json.hasReview }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combineOperation": "any"
+        }
+      },
+      "id": "check-follow-up-needed",
+      "name": "Follow-up erforderlich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 400],
+      "notes": "Prüft ob Follow-up-E-Mail erforderlich ist"
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.FROM_EMAIL }}",
+        "toEmail": "={{ $json.customerEmail }}",
+        "subject": "Letzte Chance: Bewertung schreiben & 10% Bonus sichern! 🌟",
+        "emailFormat": "html",
+        "html": "<!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"UTF-8\">\n    <style>\n        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }\n        .container { max-width: 600px; margin: 0 auto; background: white; }\n        .header { background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 30px 20px; text-align: center; }\n        .content { padding: 30px; background: #f8f9fa; }\n        .urgency-box { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 25px; border-radius: 10px; margin: 20px 0; text-align: center; }\n        .countdown { font-size: 24px; font-weight: bold; margin: 15px 0; }\n        .review-button { background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%); color: white; padding: 18px 40px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold; margin: 20px 0; font-size: 18px; }\n        .footer { text-align: center; padding: 20px; color: #666; font-size: 14px; background: #f1f1f1; }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <div class=\"header\">\n            <h1>⏰ Letzte Chance!</h1>\n            <p>Ihr 10% Bewertungsbonus läuft bald ab</p>\n        </div>\n        \n        <div class=\"content\">\n            <div class=\"urgency-box\">\n                <h2>🌟 Nur noch wenige Tage!</h2>\n                <p>Hallo {{ $json.customerName }},</p>\n                <p>vor einigen Wochen haben Sie bei DressForPleasure eingekauft. Wir würden uns sehr über Ihre Bewertung freuen!</p>\n                \n                <div class=\"countdown\">⏰ Angebot gültig noch bis {{ DateTime.now().plus({days: 3}).toFormat('dd.MM.yyyy') }}</div>\n                \n                <p><strong>🎁 Ihr Bewertungsbonus: 10% Rabatt auf die nächste Bestellung</strong></p>\n            </div>\n            \n            <div style=\"background: white; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;\">\n                <h3>📝 2 Minuten für Ihre Meinung</h3>\n                <p>Eine kurze, ehrliche Bewertung hilft anderen Kunden und uns, besser zu werden.</p>\n                \n                <a href=\"{{ $json.reviewUrl }}\" class=\"review-button\">⭐ Jetzt bewerten & Bonus sichern</a>\n                \n                <p style=\"font-size: 14px; color: #666; margin-top: 20px;\">Nach dieser E-Mail erhalten Sie keine weiteren Review-Anfragen für diese Bestellung.</p>\n            </div>\n        </div>\n        \n        <div class=\"footer\">\n            <p>Vielen Dank für Ihr Vertrauen!<br><strong>Ihr DressForPleasure Team</strong></p>\n        </div>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "id": "send-follow-up-email",
+      "name": "Follow-up E-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2660, 400],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "DressForPleasure SMTP"
+        }
+      },
+      "notes": "Sendet Follow-up E-Mail mit Urgency"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.DRESSFORP_API_URL }}/logs/automation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.DRESSFORP_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "workflow_name",
+              "value": "review_request"
+            },
+            {
+              "name": "order_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "event_type",
+              "value": "review_request_sent"
+            },
+            {
+              "name": "status",
+              "value": "success"
+            },
+            {
+              "name": "message",
+              "value": "Review request email sent successfully"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify({ orderId: $json.id, customerEmail: $json.customerEmail, daysSinceDelivery: $json.daysSinceDelivery }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "log-review-event",
+      "name": "Review-Event loggen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2880, 300],
+      "notes": "Loggt Review-Request Event für Audit-Trail"
+    }
+  ],
+  "connections": {
+    "Webhook - Review Request Trigger": {
+      "main": [
+        [
+          {
+            "node": "7 Tage nach Zustellung warten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "7 Tage nach Zustellung warten": {
+      "main": [
+        [
+          {
+            "node": "Bestelldetails abrufen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bestelldetails abrufen": {
+      "main": [
+        [
+          {
+            "node": "Review berechtigt?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review berechtigt?": {
+      "main": [
+        [
+          {
+            "node": "Review-Daten vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Daten vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "Review-Request erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Request erstellen": {
+      "main": [
+        [
+          {
+            "node": "Review-Anfrage E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Anfrage E-Mail senden": {
+      "main": [
+        [
+          {
+            "node": "Telegram Review-Benachrichtigung",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Review-Benachrichtigung": {
+      "main": [
+        [
+          {
+            "node": "Review-Event loggen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "14 Tage für Follow-up warten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Event loggen": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "14 Tage für Follow-up warten": {
+      "main": [
+        [
+          {
+            "node": "Review-Status prüfen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review-Status prüfen": {
+      "main": [
+        [
+          {
+            "node": "Follow-up erforderlich?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up erforderlich?": {
+      "main": [
+        [
+          {
+            "node": "Follow-up E-Mail senden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler_workflow"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "9",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "6",
+      "name": "customer-service"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "15",
+      "name": "reviews"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "12",
+      "name": "marketing"
+    }
+  ]
+}
