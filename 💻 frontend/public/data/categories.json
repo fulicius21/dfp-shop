@@ -1,0 +1,34 @@
+[
+  {
+    "id": "1",
+    "name": "Kleider",
+    "slug": "kleider",
+    "description": "Elegante Kleider für jeden Anlass",
+    "image": "/images/collections/collection-1.jpg",
+    "productCount": 15
+  },
+  {
+    "id": "2", 
+    "name": "Shirts",
+    "slug": "shirts",
+    "description": "Hochwertige T-Shirts und Oberteile",
+    "image": "/images/collections/collection-2.jpg",
+    "productCount": 28
+  },
+  {
+    "id": "3",
+    "name": "Jacken",
+    "slug": "jacken", 
+    "description": "Premium Jacken und Outerwear",
+    "image": "/images/collections/collection-3.png",
+    "productCount": 12
+  },
+  {
+    "id": "4",
+    "name": "Hosen",
+    "slug": "hosen",
+    "description": "Stilvolle Hosen für jeden Tag",
+    "image": "/images/collections/collection-1.jpg",
+    "productCount": 18
+  }
+]

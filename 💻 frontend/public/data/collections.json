@@ -1,0 +1,38 @@
+[
+  {
+    "id": "1",
+    "name": "Berlin Collection",
+    "slug": "berlin-collection",
+    "description": "Urbane Mode inspiriert von der Hauptstadt",
+    "longDescription": "Unsere Berlin Collection verkörpert den einzigartigen Stil der deutschen Hauptstadt. Von minimalistischen Designs bis hin zu urbanen Statements - jedes Stück erzählt die Geschichte einer pulsierenden Metropole.",
+    "image": "/images/collections/collection-1.jpg",
+    "featured": true,
+    "season": "Herbst/Winter 2024",
+    "productCount": 25,
+    "tags": ["Urban", "Minimalistisch", "Berlin", "Nachhaltig"]
+  },
+  {
+    "id": "2",
+    "name": "Atlanta Collection", 
+    "slug": "atlanta-collection",
+    "description": "Street Style trifft auf südlichen Charme",
+    "longDescription": "Die Atlanta Collection vereint den lässigen Street Style mit der warmen Ausstrahlung des amerikanischen Südens. Komfortable Materialien und zeitlose Schnitte für den modernen urbanen Lebensstil.",
+    "image": "/images/collections/collection-2.jpg",
+    "featured": true,
+    "season": "Frühling/Sommer 2024",
+    "productCount": 20,
+    "tags": ["Street Style", "Casual", "Atlanta", "Comfort"]
+  },
+  {
+    "id": "3",
+    "name": "Sustainable Basics",
+    "slug": "sustainable-basics",
+    "description": "Nachhaltige Grundausstattung für bewusste Mode",
+    "longDescription": "Unsere Sustainable Basics setzen auf zeitlose Designs und umweltfreundliche Materialien. Jedes Stück wird mit Sorgfalt und Respekt für unseren Planeten hergestellt.",
+    "image": "/images/collections/collection-3.png",
+    "featured": false,
+    "season": "Ganzjährig",
+    "productCount": 18,
+    "tags": ["Nachhaltig", "Bio", "Zeitlos", "Basics"]
+  }
+]
