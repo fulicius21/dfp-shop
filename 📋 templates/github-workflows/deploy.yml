@@ -1,0 +1,308 @@
+name: 🚀 Deploy DressForP E-Commerce System
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # Frontend Tests & Build
+  test-frontend:
+    name: 🧪 Test Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./💻 frontend
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './💻 frontend/package-lock.json'
+          
+      - name: 📋 Install Dependencies
+        run: npm ci
+        
+      - name: 🔍 Lint Code
+        run: npm run lint
+        
+      - name: 🔧 Type Check
+        run: npm run type-check
+        
+      - name: 🏗️ Build
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+          
+      - name: 📤 Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: ./💻 frontend/dist
+          retention-days: 1
+
+  # Backend Tests & Build
+  test-backend:
+    name: 🧪 Test Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./⚙️ backend
+        
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: './⚙️ backend/package-lock.json'
+          
+      - name: 📋 Install Dependencies
+        run: npm ci
+        
+      - name: 🔍 Lint Code
+        run: npm run lint
+        
+      - name: 🔧 Type Check
+        run: npm run type-check
+        
+      - name: 🏗️ Build
+        run: npm run build
+        
+      - name: 🧪 Run Tests
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          JWT_SECRET: test-secret
+          NODE_ENV: test
+
+  # Deploy Frontend to Vercel
+  deploy-frontend:
+    name: 🌐 Deploy Frontend
+    needs: [test-frontend, test-backend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          
+      - name: 📥 Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: ./💻 frontend/dist
+          
+      - name: 🚀 Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./💻 frontend
+          vercel-args: '--prod'
+          
+      - name: 📝 Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚀 Frontend successfully deployed to Vercel! Check the deployment at the provided URL.'
+            })
+
+  # Deploy Backend to Railway
+  deploy-backend:
+    name: ⚙️ Deploy Backend
+    needs: [test-frontend, test-backend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 🚂 Deploy to Railway
+        uses: bervProject/railway-deploy@v1.0.0
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: backend
+          
+      - name: 💾 Backup Database
+        run: |
+          echo "Triggering database backup..."
+          curl -X POST "${{ secrets.RAILWAY_WEBHOOK_URL }}/backup" \
+            -H "Authorization: Bearer ${{ secrets.RAILWAY_TOKEN }}"
+
+  # Deploy Automation to n8n Cloud
+  deploy-automation:
+    name: 🤖 Deploy Automation
+    needs: [deploy-backend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 🔄 Sync n8n Workflows
+        run: |
+          echo "Syncing workflows to n8n Cloud..."
+          # Custom script to upload workflows via n8n API
+          for workflow in ./🤖 automation/workflows/*/*.json; do
+            echo "Uploading $workflow..."
+            curl -X POST "${{ secrets.N8N_WEBHOOK_URL }}/workflows/import" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${{ secrets.N8N_API_KEY }}" \
+              -d "@$workflow"
+          done
+
+  # Health Check & Monitoring
+  health-check:
+    name: 🏥 Health Check
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 🏥 Check Frontend Health
+        run: |
+          echo "Checking frontend health..."
+          curl -f ${{ secrets.FRONTEND_URL }} || exit 1
+          
+      - name: 🏥 Check Backend Health
+        run: |
+          echo "Checking backend health..."
+          curl -f ${{ secrets.BACKEND_URL }}/api/health || exit 1
+          
+      - name: 🧪 Run Integration Tests
+        run: |
+          echo "Running integration tests..."
+          curl -f ${{ secrets.BACKEND_URL }}/api/products
+          
+      - name: 📊 Update Status Badge
+        if: success()
+        run: |
+          echo "All systems operational! ✅"
+          
+      - name: 🚨 Notify on Failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          channel: '#alerts'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  # Security Scan
+  security-scan:
+    name: 🛡️ Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 🔍 Run Trivy Security Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: 📤 Upload Trivy Scan Results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+          
+      - name: 📋 Dependency Review
+        uses: actions/dependency-review-action@v4
+        if: github.event_name == 'pull_request'
+
+  # Performance Testing
+  lighthouse:
+    name: 🚨 Lighthouse Performance Test
+    needs: [deploy-frontend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: 🚨 Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            ${{ secrets.FRONTEND_URL }}
+            ${{ secrets.FRONTEND_URL }}/products
+            ${{ secrets.FRONTEND_URL }}/admin
+          configPath: './lighthouse.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+  # Notify Success
+  notify-success:
+    name: 📢 Notify Deployment Success
+    needs: [health-check, security-scan, lighthouse]
+    runs-on: ubuntu-latest
+    if: success() && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📢 Send Success Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          channel: '#deployments'
+          message: |
+            🎉 DressForP deployment successful!
+            
+            🌐 Frontend: ${{ secrets.FRONTEND_URL }}
+            ⚙️ Backend: ${{ secrets.BACKEND_URL }}
+            📊 Admin: ${{ secrets.FRONTEND_URL }}/admin
+            
+            Deployed by: ${{ github.actor }}
+            Commit: ${{ github.sha }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          
+      - name: 📱 Send Telegram Notification
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}" \
+            -d "text=🚀 DressForP successfully deployed!%0A%0A🌐 Website: ${{ secrets.FRONTEND_URL }}%0A⚙️ API: ${{ secrets.BACKEND_URL }}%0A%0ACommit: ${{ github.sha }}"

@@ -1,0 +1,184 @@
+# Netlify Configuration für DressForP Frontend
+# Platziere diese Datei im Root-Verzeichnis
+
+[build]
+  # Build-Kommando
+  command = "cd '💻 frontend' && npm ci && npm run build"
+  
+  # Output-Verzeichnis
+  publish = "💻 frontend/dist"
+  
+  # Node.js Version
+  environment = { NODE_VERSION = "18" }
+
+# Environment Variables für Build
+[build.environment]
+  VITE_API_URL = "https://your-backend.railway.app/api"
+  VITE_STRIPE_PUBLISHABLE_KEY = "pk_live_your_stripe_key"
+  VITE_GA_TRACKING_ID = "G-XXXXXXXXXX"
+
+# Redirects für SPA Routing
+[[redirects]]
+  from = "/admin/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/products/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/checkout/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/account/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/collections/*"
+  to = "/index.html"
+  status = 200
+
+# API Proxy zu Backend
+[[redirects]]
+  from = "/api/*"
+  to = "https://your-backend.railway.app/api/:splat"
+  status = 200
+  force = true
+
+# Security Headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache Headers für Bilder
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache Headers für Assets
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# HSTS Header für HTTPS
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+# CSP Header für Sicherheit
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: https: blob:;
+      connect-src 'self' https://api.stripe.com https://your-backend.railway.app https://www.google-analytics.com;
+      frame-src https://js.stripe.com;
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self' https://checkout.stripe.com;
+    """
+
+# Form Handling für Kontaktformular
+[forms]
+  contact = "/success"
+
+# Funktionen (Serverless Functions)
+[functions]
+  directory = "💻 frontend/netlify/functions"
+
+# Build Hooks für automatische Deployments
+[template.environment]
+  VITE_API_URL = "Environment variable for backend API URL"
+  VITE_STRIPE_PUBLISHABLE_KEY = "Environment variable for Stripe publishable key"
+  VITE_GA_TRACKING_ID = "Environment variable for Google Analytics tracking ID"
+
+# Branch Deploy Settings
+[context.production]
+  environment = { NODE_ENV = "production" }
+
+[context.deploy-preview]
+  environment = { NODE_ENV = "staging" }
+
+[context.branch-deploy]
+  environment = { NODE_ENV = "development" }
+
+# Plugin Configuration
+[[plugins]]
+  package = "@netlify/plugin-lighthouse"
+  
+  [plugins.inputs]
+    output_path = "reports/lighthouse"
+
+[[plugins]]
+  package = "netlify-plugin-sitemap"
+  
+  [plugins.inputs]
+    baseUrl = "https://your-domain.com"
+    
+[[plugins]]
+  package = "netlify-plugin-submit-sitemap"
+  
+  [plugins.inputs]
+    baseUrl = "https://your-domain.com"
+    sitemapPath = "/sitemap.xml"
+    providers = [
+      "google",
+      "bing"
+    ]
+
+# Edge Functions für erweiterte Funktionalität
+[[edge_functions]]
+  function = "geolocation"
+  path = "/api/location"
+
+# Split Testing
+[context.split1]
+  environment = { VARIANT = "A" }
+
+[context.split2]
+  environment = { VARIANT = "B" }
+
+# Large Media (Git LFS Alternative)
+[build.processing]
+  skip_processing = false
+
+[build.processing.css]
+  bundle = true
+  minify = true
+
+[build.processing.js]
+  bundle = true
+  minify = true
+
+[build.processing.html]
+  pretty_urls = true
+
+[build.processing.images]
+  compress = true
+
+# Umleitung von alter Domain (falls vorhanden)
+[[redirects]]
+  from = "https://old-domain.com/*"
+  to = "https://your-domain.com/:splat"
+  status = 301
+  force = true
+
+# Custom Domain Settings
+# Wird automatisch konfiguriert wenn Domain hinzugefügt wird

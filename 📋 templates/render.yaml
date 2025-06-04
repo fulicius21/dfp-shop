@@ -1,0 +1,294 @@
+# Render Configuration für DressForP E-Commerce System
+# Platziere diese Datei im Root-Verzeichnis
+
+services:
+  # Backend API Service
+  - type: web
+    name: dressforp-backend
+    env: node
+    region: frankfurt
+    plan: free
+    buildCommand: cd "⚙️ backend" && npm ci && npm run build
+    startCommand: cd "⚙️ backend" && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dressforp-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: dressforp-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://dressforp-frontend.onrender.com
+      - key: BACKEND_URL
+        value: https://dressforp-backend.onrender.com
+      - key: STRIPE_SECRET_KEY
+        sync: false  # Manuell setzen
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false  # Manuell setzen
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false  # Manuell setzen
+      - key: TELEGRAM_ADMIN_IDS
+        sync: false  # Manuell setzen
+      - key: MAIL_HOST
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: 587
+      - key: MAIL_USER
+        sync: false  # Manuell setzen
+      - key: MAIL_PASS
+        sync: false  # Manuell setzen
+    autoDeploy: true
+    
+  # Frontend Static Site
+  - type: static_site
+    name: dressforp-frontend
+    buildCommand: cd "💻 frontend" && npm ci && npm run build
+    staticPublishPath: ./💻 frontend/dist
+    pullRequestPreviewsEnabled: true
+    buildFilter:
+      paths:
+        - 💻 frontend/**
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /images/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://dressforp-backend.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        value: https://dressforp-backend.onrender.com/api
+      - key: VITE_STRIPE_PUBLISHABLE_KEY
+        sync: false  # Manuell setzen
+      - key: VITE_GA_TRACKING_ID
+        sync: false  # Manuell setzen
+
+  # n8n Automation Service
+  - type: web
+    name: dressforp-n8n
+    env: docker
+    region: frankfurt
+    plan: starter  # n8n benötigt mehr Ressourcen
+    dockerfilePath: ./🤖 automation/Dockerfile
+    envVars:
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PORT
+        value: 5678
+      - key: N8N_PROTOCOL
+        value: https
+      - key: WEBHOOK_URL
+        value: https://dressforp-n8n.onrender.com
+      - key: N8N_BASIC_AUTH_ACTIVE
+        value: true
+      - key: N8N_BASIC_AUTH_USER
+        value: admin
+      - key: N8N_BASIC_AUTH_PASSWORD
+        generateValue: true
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        fromDatabase:
+          name: dressforp-db
+          property: host
+      - key: DB_POSTGRESDB_PORT
+        fromDatabase:
+          name: dressforp-db
+          property: port
+      - key: DB_POSTGRESDB_DATABASE
+        fromDatabase:
+          name: dressforp-db
+          property: database
+      - key: DB_POSTGRESDB_USER
+        fromDatabase:
+          name: dressforp-db
+          property: user
+      - key: DB_POSTGRESDB_PASSWORD
+        fromDatabase:
+          name: dressforp-db
+          property: password
+    autoDeploy: true
+
+databases:
+  # PostgreSQL Database
+  - name: dressforp-db
+    databaseName: dressforp
+    user: dressforp_user
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: 15
+
+  # Redis Cache (falls unterstützt)
+  # - name: dressforp-redis
+  #   plan: free
+  #   region: frankfurt
+
+# Alternative: Externe Redis über Redis Labs
+# envVars für Backend:
+# - key: REDIS_URL
+#   value: redis://username:password@host:port
+
+# Custom Domain Configuration (optional)
+# domains:
+#   - name: your-domain.com
+#     type: apex
+#   - name: www.your-domain.com
+#     type: www
+
+# Notification Settings
+notifications:
+  - type: slack
+    name: deployment-alerts
+    settings:
+      url: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+# Cron Jobs für Backup & Maintenance
+jobs:
+  - type: cron
+    name: daily-backup
+    schedule: "0 2 * * *"  # Täglich um 2:00 Uhr
+    dockerfilePath: ./🔧 scripts/Dockerfile.backup
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dressforp-db
+          property: connectionString
+      - key: BACKUP_STORAGE
+        sync: false  # S3/Google Cloud Bucket URL
+
+  - type: cron
+    name: weekly-report
+    schedule: "0 8 * * 1"  # Montags um 8:00 Uhr
+    dockerfilePath: ./🤖 automation/Dockerfile.reports
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_IDS
+        sync: false
+
+# Build Settings
+buildSettings:
+  # Build-Zeit erhöhen für größere Projekte
+  buildTimeoutMinutes: 20
+  
+  # Dependency-Cache aktivieren
+  cacheNodeModules: true
+  
+  # Build-Environment
+  environment:
+    NODE_VERSION: "18"
+    NPM_VERSION: "9"
+
+# Preview Environments für Pull Requests
+previewsEnabled: true
+previewsExpireAfterDays: 7
+
+# Auto-Deploy Einstellungen
+autoDeploySettings:
+  # Deploy bei Push auf main branch
+  branch: main
+  
+  # Build-Filter für effizienten Deploy
+  buildFilter:
+    ignorePaths:
+      - README.md
+      - docs/**
+      - "*.md"
+
+# Health Check Settings
+healthChecks:
+  backend:
+    path: /api/health
+    timeoutSeconds: 30
+    intervalSeconds: 60
+    
+  frontend:
+    path: /
+    timeoutSeconds: 10
+    intervalSeconds: 300
+
+# Resource Limits (Free Tier)
+resources:
+  backend:
+    cpu: 0.1
+    memory: 512Mi
+    
+  frontend:
+    # Static sites haben keine Resource-Limits
+    
+  n8n:
+    cpu: 0.1
+    memory: 512Mi
+
+# SSL/TLS Configuration
+ssl:
+  # Automatische SSL-Zertifikate für alle Services
+  auto: true
+  
+  # Custom SSL (falls eigene Zertifikate vorhanden)
+  # custom:
+  #   certificate: |
+  #     -----BEGIN CERTIFICATE-----
+  #     ...
+  #   privateKey: |
+  #     -----BEGIN PRIVATE KEY-----
+  #     ...
+
+# Monitoring & Alerts
+monitoring:
+  # Uptime Monitoring
+  enabled: true
+  
+  # Response Time Alerts
+  responseTimeThresholdMs: 5000
+  
+  # Error Rate Alerts
+  errorRateThresholdPercent: 5
+  
+  # Notification Channels
+  notificationChannels:
+    - type: email
+      address: admin@your-domain.com
+    - type: slack
+      webhook: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+
+# Backup Configuration
+backups:
+  database:
+    # Automatische tägliche Backups
+    schedule: "0 3 * * *"
+    retentionDays: 30
+    
+  files:
+    # Backup für Upload-Dateien
+    include:
+      - uploads/
+      - images/
+    exclude:
+      - logs/
+      - node_modules/

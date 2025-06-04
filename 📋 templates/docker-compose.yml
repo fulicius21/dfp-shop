@@ -1,0 +1,362 @@
+version: '3.8'
+
+# DressForP E-Commerce System - Docker Compose Configuration
+# Startet alle Services lokal oder auf einem Server
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: dressforp_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dressforp}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./🤖 automation/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    networks:
+      - dressforp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: dressforp_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis123}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - dressforp_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API
+  backend:
+    build:
+      context: ./⚙️ backend
+      dockerfile: Dockerfile
+    container_name: dressforp_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-password123}@postgres:5432/${DB_NAME:-dressforp}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dressforp_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend Website
+  frontend:
+    build:
+      context: ./💻 frontend
+      dockerfile: Dockerfile
+    container_name: dressforp_frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${BACKEND_URL:-http://localhost:3001}/api
+      VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - dressforp_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # n8n Automation
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: dressforp_n8n
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${DB_NAME:-dressforp}
+      DB_POSTGRESDB_USER: ${DB_USER:-postgres}
+      DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD:-password123}
+      N8N_BASIC_AUTH_ACTIVE: true
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-admin}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
+      GENERIC_TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./🤖 automation/workflows:/home/node/.n8n/workflows
+      - ./🤖 automation/credentials:/home/node/.n8n/credentials
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - dressforp_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # AI Style Creator
+  ai-creator:
+    build:
+      context: ./🎨 ai-style-creator
+      dockerfile: Dockerfile
+    container_name: dressforp_ai
+    restart: unless-stopped
+    environment:
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      STABILITY_API_KEY: ${STABILITY_API_KEY}
+    volumes:
+      - ai_models:/app/models
+      - ./uploads/ai-generated:/app/output
+    ports:
+      - "${AI_CREATOR_PORT:-7860}:7860"
+    networks:
+      - dressforp_network
+    deploy:
+      resources:
+        reservations:
+          memory: 2G
+        limits:
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+
+  # Telegram Bot (standalone service)
+  telegram-bot:
+    build:
+      context: ./🤖 automation/scripts
+      dockerfile: Dockerfile.telegram
+    container_name: dressforp_telegram
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
+      API_BASE_URL: http://backend:3001/api
+      NODE_ENV: ${NODE_ENV:-development}
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - dressforp_network
+
+  # Nginx Reverse Proxy (Production)
+  nginx:
+    image: nginx:alpine
+    container_name: dressforp_nginx
+    restart: unless-stopped
+    volumes:
+      - ./📋 templates/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - dressforp_network
+    profiles:
+      - production
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dressforp_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./🤖 automation/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - dressforp_network
+    profiles:
+      - monitoring
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dressforp_grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./🤖 automation/monitoring/grafana:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - dressforp_network
+    profiles:
+      - monitoring
+
+  # Backup Service
+  backup:
+    image: postgres:15-alpine
+    container_name: dressforp_backup
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:-password123}
+    volumes:
+      - ./backups:/backups
+      - ./🔧 scripts:/scripts
+    command: |
+      sh -c '
+        echo "Backup Service bereit. Führe ./🔧 scripts/backup.sh aus für Backups."
+        sleep infinity
+      '
+    depends_on:
+      - postgres
+    networks:
+      - dressforp_network
+    profiles:
+      - backup
+
+# Volumes for persistent data
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  n8n_data:
+    driver: local
+  ai_models:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# Network for service communication
+networks:
+  dressforp_network:
+    driver: bridge
+
+# Development Override
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+---
+# docker-compose.dev.yml
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      NODE_ENV: development
+      DEBUG: "true"
+    volumes:
+      - ./⚙️ backend/src:/app/src
+    command: npm run dev
+
+  frontend:
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./💻 frontend/src:/app/src
+    command: npm run dev
+
+  n8n:
+    environment:
+      N8N_LOG_LEVEL: debug
+
+# Production Override  
+# docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+---
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  postgres:
+    deploy:
+      resources:
+        reservations:
+          memory: 512M
+        limits:
+          memory: 1G
+
+  redis:
+    deploy:
+      resources:
+        reservations:
+          memory: 256M
+        limits:
+          memory: 512M
+
+  backend:
+    environment:
+      NODE_ENV: production
+      DEBUG: "false"
+    deploy:
+      replicas: 2
+      resources:
+        reservations:
+          memory: 512M
+        limits:
+          memory: 1G
+
+  frontend:
+    deploy:
+      resources:
+        reservations:
+          memory: 256M
+        limits:
+          memory: 512M
+
+  nginx:
+    profiles:
+      - ""  # Always include in production

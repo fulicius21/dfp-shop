@@ -1,0 +1,54 @@
+{
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/api/health",
+    "healthcheckTimeout": 100,
+    "restartPolicyType": "on-failure",
+    "restartPolicyMaxRetries": 3,
+    "sleepApplication": false,
+    "cronJobs": [
+      {
+        "command": "npm run db:backup",
+        "schedule": "0 2 * * *"
+      }
+    ]
+  },
+  "build": {
+    "builder": "nixpacks",
+    "buildCommand": "npm ci && npm run build",
+    "watchPatterns": [
+      "src/**/*.ts",
+      "src/**/*.js"
+    ]
+  },
+  "environments": {
+    "production": {
+      "variables": {
+        "NODE_ENV": "production",
+        "PORT": "3001"
+      }
+    },
+    "staging": {
+      "variables": {
+        "NODE_ENV": "staging",
+        "PORT": "3001"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "postgresql",
+      "plan": "hobby"
+    },
+    {
+      "name": "redis",
+      "plan": "hobby"
+    }
+  ],
+  "regions": [
+    "fra"
+  ],
+  "networking": {
+    "enableIPv6": true
+  }
+}
