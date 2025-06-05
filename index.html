@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="de">
+
+<head>
+  <!-- Essential Meta Tags -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#000000" />
+  
+  <!-- SEO Meta Tags -->
+  <title>DressForPleasure - Premium Mode & Fashion Online Shop</title>
+  <meta name="description" content="Entdecken Sie exklusive Mode und Premium Fashion bei DressForPleasure. Hochwertige Kleidung, stilvolle Accessoires und zeitlose Designs für jeden Anlass." />
+  <meta name="keywords" content="mode, fashion, kleidung, online shop, premium, style, accessoires, dressforp" />
+  <meta name="author" content="DressForPleasure" />
+  <meta name="robots" content="index, follow" />
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://dressforp.com/" />
+  <meta property="og:title" content="DressForPleasure - Premium Mode & Fashion Online Shop" />
+  <meta property="og:description" content="Entdecken Sie exklusive Mode und Premium Fashion bei DressForPleasure. Hochwertige Kleidung, stilvolle Accessoires und zeitlose Designs." />
+  <meta property="og:image" content="/images/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="de_DE" />
+  <meta property="og:site_name" content="DressForPleasure" />
+  
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:url" content="https://dressforp.com/" />
+  <meta property="twitter:title" content="DressForPleasure - Premium Mode & Fashion Online Shop" />
+  <meta property="twitter:description" content="Entdecken Sie exklusive Mode und Premium Fashion bei DressForPleasure." />
+  <meta property="twitter:image" content="/images/twitter-image.jpg" />
+  
+  <!-- Favicons -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  
+  <!-- Performance & Preload -->
+  <link rel="dns-prefetch" href="//fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  
+  <!-- Schema.org JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "DressForPleasure",
+    "url": "https://dressforp.com",
+    "logo": "https://dressforp.com/images/logo.png",
+    "description": "Premium Mode & Fashion Online Shop",
+    "address": {
+      "@type": "PostalAddress",
+      "addressCountry": "DE"
+    },
+    "sameAs": [
+      "https://www.facebook.com/dressforp",
+      "https://www.instagram.com/dressforp",
+      "https://www.twitter.com/dressforp"
+    ]
+  }
+  </script>
+  
+  <!-- Structured Data for E-commerce -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "DressForPleasure",
+    "url": "https://dressforp.com",
+    "description": "Premium Mode & Fashion Online Shop",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://dressforp.com/produkte?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+</head>
+
+<body>
+  <!-- Screen Reader Skip Link -->
+  <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 bg-black text-white px-4 py-2 rounded">
+    Zum Hauptinhalt springen
+  </a>
+  
+  <!-- Loading Screen -->
+  <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 9999; display: flex; align-items: center; justify-content: center;">
+    <div style="text-align: center;">
+      <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #000; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px;"></div>
+      <p style="color: #666; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">DressForPleasure wird geladen...</p>
+    </div>
+  </div>
+  
+  <style>
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+  
+  <!-- Main App Root -->
+  <div id="root" aria-label="DressForPleasure E-Commerce Anwendung">
+    <!-- Fallback Content für JavaScript-deaktivierte Browser -->
+    <noscript>
+      <div style="text-align: center; padding: 50px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <h1>DressForPleasure</h1>
+        <p>Für die volle Funktionalität dieser Website ist JavaScript erforderlich.</p>
+        <p>Bitte aktivieren Sie JavaScript in Ihrem Browser und laden Sie die Seite neu.</p>
+      </div>
+    </noscript>
+  </div>
+  
+  <!-- Remove Loading Screen after App loads -->
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() {
+        const loadingScreen = document.getElementById('loading-screen');
+        if (loadingScreen) {
+          loadingScreen.style.opacity = '0';
+          loadingScreen.style.transition = 'opacity 0.3s ease-out';
+          setTimeout(function() {
+            loadingScreen.remove();
+          }, 300);
+        }
+      }, 500);
+    });
+  </script>
+  
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
