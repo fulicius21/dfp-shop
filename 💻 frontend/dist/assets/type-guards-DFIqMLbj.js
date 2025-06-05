@@ -1,0 +1,1 @@
+function r(t){return typeof t=="object"&&t!==null&&"message"in t&&typeof t.message=="string"}function e(t){if(r(t))return t;try{return new Error(JSON.stringify(t))}catch(n){return new Error(String(t))}}function s(t){return e(t).message}function i(t){return Array.isArray(t)&&t.every(n=>typeof n=="string")}export{s as g,i};
