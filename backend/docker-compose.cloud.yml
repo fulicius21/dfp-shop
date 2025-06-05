@@ -1,0 +1,269 @@
+# Docker Compose für Cloud-Deployment Simulation
+# DressForPleasure Backend mit PostgreSQL
+# 
+# Dieses Setup simuliert Cloud-Deployment lokal für Testing
+# Production-Deployment sollte über Cloud-Provider erfolgen
+
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: dressforp-backend-cloud
+    restart: unless-stopped
+    
+    # Environment Variables für Cloud-Simulation
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://dressforp_user:${POSTGRES_PASSWORD:-secure_password}@postgres:5432/dressforp_prod
+      - PORT=3000
+      - TRUST_PROXY=true
+      - CORS_ORIGIN=https://dressforp.vercel.app,https://dressforp.com
+      - SESSION_SECRET=${SESSION_SECRET:-generated_session_secret_32_chars}
+      - JWT_SECRET=${JWT_SECRET:-generated_jwt_secret_64_chars}
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
+      - DB_IDLE_TIMEOUT=30000
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - GDPR_ENABLED=true
+      - HEALTH_CHECK_ENABLED=true
+      - API_RATE_LIMIT_WINDOW_MS=900000
+      - API_RATE_LIMIT_MAX_REQUESTS=1000
+      - MAX_REQUEST_SIZE=5mb
+    
+    # Port mapping
+    ports:
+      - "3000:3000"
+    
+    # Depends on database
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Resource limits (Cloud-Provider Simulation)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    
+    # Volumes für Logs und temporäre Dateien
+    volumes:
+      - backend_logs:/app/logs
+      - backend_temp:/app/temp
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:15-alpine
+    container_name: dressforp-postgres-cloud
+    restart: unless-stopped
+    
+    # Environment Variables
+    environment:
+      - POSTGRES_DB=dressforp_prod
+      - POSTGRES_USER=dressforp_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-secure_password}
+      - POSTGRES_INITDB_ARGS="--auth-host=md5"
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    
+    # Port (nur für externe Verbindungen)
+    ports:
+      - "5433:5432"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dressforp_user -d dressforp_prod"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    
+    # Persistent storage
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+  # Redis für Caching (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: dressforp-redis-cloud
+    restart: unless-stopped
+    
+    # Redis Konfiguration
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+    
+    # Persistent storage
+    volumes:
+      - redis_data:/data
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+  # Nginx Reverse Proxy (Cloud Load Balancer Simulation)
+  nginx:
+    image: nginx:alpine
+    container_name: dressforp-nginx-cloud
+    restart: unless-stopped
+    
+    # Port mapping
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    # Nginx Konfiguration
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    
+    # Depends on backend
+    depends_on:
+      backend:
+        condition: service_healthy
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+  # Monitoring - Prometheus (Optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dressforp-prometheus-cloud
+    restart: unless-stopped
+    
+    # Konfiguration
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    
+    # Port
+    ports:
+      - "9090:9090"
+    
+    # Command
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+  # Log Aggregation - Grafana (Optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dressforp-grafana-cloud
+    restart: unless-stopped
+    
+    # Environment
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin_password}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    
+    # Port
+    ports:
+      - "3001:3000"
+    
+    # Volumes
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    
+    # Depends on Prometheus
+    depends_on:
+      - prometheus
+    
+    # Networking
+    networks:
+      - dressforp-network
+
+# Named Volumes für Persistent Storage
+volumes:
+  postgres_data:
+    driver: local
+    name: dressforp_postgres_data_cloud
+  redis_data:
+    driver: local
+    name: dressforp_redis_data_cloud
+  backend_logs:
+    driver: local
+    name: dressforp_backend_logs_cloud
+  backend_temp:
+    driver: local
+    name: dressforp_backend_temp_cloud
+  nginx_logs:
+    driver: local
+    name: dressforp_nginx_logs_cloud
+  prometheus_data:
+    driver: local
+    name: dressforp_prometheus_data_cloud
+  grafana_data:
+    driver: local
+    name: dressforp_grafana_data_cloud
+
+# Custom Network
+networks:
+  dressforp-network:
+    driver: bridge
+    name: dressforp_cloud_network
